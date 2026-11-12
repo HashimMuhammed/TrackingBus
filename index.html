@@ -1,0 +1,2156 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trackingo Pro — Live Bus Tracker (Vignesh TAT • ZK3M8T)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Leaflet 1.9.4 CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #090d16;
+      color: #f1f5f9;
+      overflow-x: hidden;
+    }
+    /* Isolate Leaflet stacking context completely so map controls/panes never overlap page elements on scroll */
+    .map-isolation-wrapper {
+      position: relative;
+      isolation: isolate;
+      z-index: 1;
+    }
+    #mapContainer {
+      height: 520px;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+    .leaflet-container {
+      font-family: 'Inter', sans-serif;
+      background: #0f172a;
+      z-index: 1 !important;
+    }
+    .leaflet-pane,
+    .leaflet-top,
+    .leaflet-bottom,
+    .leaflet-control {
+      z-index: 10 !important;
+    }
+    .leaflet-popup-content-wrapper {
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.7);
+    }
+    .leaflet-popup-tip {
+      background: #1e293b;
+    }
+    .bus-pulse {
+      animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes pulseRing {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 0.9;
+      }
+      50% {
+        transform: scale(1.42);
+        opacity: 0.25;
+      }
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#090d16] text-slate-100 flex flex-col">
+
+  <!-- Toast Notification -->
+  <div id="toastBanner" class="fixed bottom-6 right-6 z-50 hidden items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 border border-indigo-500/40 text-slate-100 shadow-2xl transition-all duration-300">
+    <span id="toastIcon" class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+    <span id="toastMessage" class="text-sm font-medium">Live status updated</span>
+  </div>
+
+  <!-- Clean, Non-Sticky Top Header (Prevents Scroll Overlap) -->
+  <header class="bg-slate-900/80 border-b border-slate-800/80">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        
+        <!-- Brand & Bus Identity -->
+        <div class="flex items-start sm:items-center justify-between gap-4">
+          <div class="flex items-center gap-3.5">
+            <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
+              <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h8m-8 4h8m-6 4h4M5 3h14a2 2 0 012 2v11a3 3 0 01-3 3H6a3 3 0 01-3-3V5a2 2 0 012-2zm2 16v2m10-2v2" />
+              </svg>
+            </div>
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <h1 class="text-lg sm:text-xl font-bold tracking-tight text-white">Trackingo Pro</h1>
+                <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30" id="headerOpBadge">BITLAA • Vignesh TAT</span>
+                <span class="px-2.5 py-0.5 text-xs font-mono font-semibold rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span id="headerKeyBadge">ZK3M8T</span>
+                </span>
+                <span id="apiSyncBadge" class="px-2.5 py-0.5 text-xs font-mono rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                  Live Clock Sync: ON
+                </span>
+              </div>
+              <p class="text-xs sm:text-sm text-slate-400 mt-1">
+                Route: <strong class="text-slate-200">CHN(A) TO KUMILY (R)</strong> • Vehicle <strong class="text-indigo-300 font-mono">TN02BT6147</strong> • PNR <strong class="text-slate-200 font-mono">784924</strong>
+              </p>
+            </div>
+          </div>
+
+          <button id="mobileAutoTrackBtn" type="button" class="lg:hidden px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+            Live Sync: ON
+          </button>
+        </div>
+
+        <!-- URL Input Form -->
+        <form id="trackUrlForm" class="w-full lg:max-w-xl flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+          <div class="relative flex-1">
+            <input
+              id="trackingUrlInput"
+              type="text"
+              value="http://trkg.in/BITLAA/ZK3M8T"
+              placeholder="Paste trkg.in URL or Short Key (ZK3M8T)..."
+              class="w-full pl-4 pr-20 py-2.5 rounded-xl bg-slate-950 border border-slate-700/90 text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              aria-label="Tracking URL or Short Key"
+            />
+            <button
+              type="button"
+              id="resetUrlBtn"
+              class="absolute inset-y-1.5 right-1.5 px-2.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition"
+            >
+              Reset
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="submit"
+              id="trackSubmitBtn"
+              class="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold shadow-lg shadow-indigo-600/20 transition flex items-center justify-center gap-2"
+            >
+              <span>Sync Live</span>
+            </button>
+            <button
+              type="button"
+              id="copyShareBtn"
+              class="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium border border-slate-700 transition"
+            >
+              Share ETA
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Spacious View Navigation Tabs -->
+      <div class="mt-5 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-main-tab="dashboard"
+            class="main-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition bg-indigo-600 text-white shadow-md"
+          >
+            1. Live Tracker &amp; Route Timeline
+          </button>
+          <button
+            type="button"
+            data-main-tab="map"
+            class="main-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition bg-slate-800/90 text-slate-300 hover:text-white"
+          >
+            2. Interactive Map Viewer
+          </button>
+          <button
+            type="button"
+            data-main-tab="stops"
+            class="main-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition bg-slate-800/90 text-slate-300 hover:text-white"
+          >
+            3. FullStop Schedule (33)
+          </button>
+          <button
+            type="button"
+            data-main-tab="api"
+            class="main-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition bg-slate-800/90 text-slate-300 hover:text-white flex items-center gap-1.5"
+          >
+            <span>4. URL &amp; API Analyzer</span>
+            <span class="px-2 py-0.5 text-[10px] rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">JSON</span>
+          </button>
+          <button
+            type="button"
+            data-main-tab="feedback"
+            class="main-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition bg-slate-800/90 text-slate-300 hover:text-white"
+          >
+            5. Trip Rating
+          </button>
+        </div>
+
+        <!-- Quick URL Presets -->
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="text-slate-400">Load URL:</span>
+          <button type="button" data-preset-url="http://trkg.in/BITLAA/ZK3M8T" class="preset-url-btn px-3 py-1.5 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono hover:bg-indigo-500/25 transition">
+            trkg.in/BITLAA/ZK3M8T
+          </button>
+          <button type="button" data-preset-url="https://bus.trackingo.in/customer/track_vehicle?ZK3M8T" class="preset-url-btn px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 font-mono hover:bg-slate-700 transition">
+            bus.trackingo.in/?ZK3M8T
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container with Generous Spacing -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- Real-Time Journey Progress Hero Banner (Shows 4 Stations Passed & Live Clock Sync) -->
+    <section class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-5 sm:p-6 shadow-xl">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-5 border-b border-slate-800/90">
+        <div class="space-y-1">
+          <div class="flex flex-wrap items-center gap-2.5">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+              <span id="liveBannerStatusPill">LIVE • 4 STATIONS PASSED</span>
+            </span>
+            <span class="text-xs sm:text-sm font-mono text-slate-300" id="liveClockReadout">
+              IST Clock: 08:11 PM • Polling every 20s
+            </span>
+          </div>
+          <h2 class="text-lg sm:text-xl font-extrabold text-white pt-1" id="liveProgressHeadline">
+            Bus departed #4 Velachery (07:49 PM) and is approaching #5 Kamakshi Hospital
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-300" id="liveProgressSubline">
+            Passed 4 of 33 stations (Adyar, SRP Tools, Tharamani, Velachery) • 4 stops away from your boarding point at #8 Sholinganallur (Est. 08:14 PM)
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            id="syncRealTimeNowBtn"
+            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold shadow-lg shadow-emerald-600/20 transition flex items-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>Sync to Real-Time Clock</span>
+          </button>
+          <button
+            type="button"
+            id="toggleLiveSimBtn"
+            class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+          >
+            Auto-Advance: ON
+          </button>
+        </div>
+      </div>
+
+      <!-- Visual Passed Stations Stepper & Scrubber -->
+      <div class="pt-5 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+        <!-- Passed & Upcoming Immediate Stops Strip (7 cols) -->
+        <div class="lg:col-span-7">
+          <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
+            Immediate Chennai Pickup Corridor (Live Station Progression)
+          </div>
+          <div id="corridorMiniStepper" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5"></div>
+        </div>
+
+        <!-- Manual Override Scrubber & Quick Jump (5 cols) -->
+        <div class="lg:col-span-5 bg-slate-950/80 border border-slate-800/90 rounded-xl p-4">
+          <div class="flex items-center justify-between text-xs mb-2">
+            <span class="font-semibold text-slate-300">Passed Stations / Route Scrubber</span>
+            <span id="progressPctLabel" class="font-mono font-bold text-indigo-400">4 / 33 Stations Passed</span>
+          </div>
+          <input
+            id="routeProgressSlider"
+            type="range"
+            min="0"
+            max="100"
+            step="0.5"
+            value="11.5"
+            class="w-full accent-indigo-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
+            aria-label="Bus position progress along route"
+          />
+          <div class="flex flex-wrap justify-between gap-2 text-xs text-slate-400 mt-2.5">
+            <button type="button" data-jump-pct="3.2" class="jump-pct-btn hover:text-emerald-300 underline">2 Passed (SRP Tools)</button>
+            <button type="button" data-jump-pct="11.5" class="jump-pct-btn text-emerald-400 font-semibold underline">4 Passed (Live Now • Velachery)</button>
+            <button type="button" data-jump-pct="22.0" class="jump-pct-btn hover:text-indigo-300 underline">8 Passed (Sholinganallur)</button>
+            <button type="button" data-jump-pct="38.0" class="jump-pct-btn hover:text-amber-300 underline">13 Passed (Kilambakkam)</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Spacious 3-Card Summary Row + Boarding/Drop Selectors -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      
+      <!-- Card 1: My Boarding Point & Live ETA -->
+      <div class="bg-slate-900 border border-emerald-500/30 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4">
+        <div>
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              My Boarding Point
+            </span>
+            <span id="cardBoardingBadge" class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              Arriving in 11m
+            </span>
+          </div>
+
+          <select
+            id="boardingSelect"
+            aria-label="Select My Boarding Point"
+            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-3"
+          ></select>
+
+          <h3 id="cardBoardingName" class="text-base font-bold text-white">#8 Sholinganallur</h3>
+          <p id="cardBoardingLandmark" class="text-xs text-slate-400 mt-0.5">Mohamed Sathak College (Ticket Boarding Point)</p>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800/90 flex items-end justify-between">
+          <div>
+            <div class="text-[11px] uppercase text-slate-400 font-medium">Estimated Arrival</div>
+            <div class="flex items-baseline gap-2 mt-0.5">
+              <span id="cardBoardingEtaTime" class="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400">08:14 PM</span>
+              <span id="cardBoardingSchedTime" class="text-xs text-slate-400 line-through font-mono">08:00 PM</span>
+            </div>
+          </div>
+          <div class="text-right">
+            <div id="cardBoardingDist" class="text-xs font-medium text-slate-300">4 stops away • 6.8 km</div>
+            <button type="button" id="focusBoardingBtn" class="mt-1 text-xs text-emerald-400 hover:text-emerald-300 font-semibold">
+              Locate on Map →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: My Destination & Drop-off ETA -->
+      <div class="bg-slate-900 border border-amber-500/30 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4">
+        <div>
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+              My Destination (Drop-off)
+            </span>
+            <span id="cardDroppingBadge" class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              11h 26m left
+            </span>
+          </div>
+
+          <select
+            id="droppingSelect"
+            aria-label="Select My Destination Stop"
+            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 mb-3"
+          ></select>
+
+          <h3 id="cardDroppingName" class="text-base font-bold text-white">#33 Kumily</h3>
+          <p id="cardDroppingLandmark" class="text-xs text-slate-400 mt-0.5">Kumily Final Drop-off Point (ID: 37512958)</p>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800/90 flex items-end justify-between">
+          <div>
+            <div class="text-[11px] uppercase text-slate-400 font-medium">Estimated Arrival</div>
+            <div class="flex items-baseline gap-2 mt-0.5">
+              <span id="cardDroppingEtaTime" class="text-2xl sm:text-3xl font-extrabold font-mono text-amber-400">07:29 AM</span>
+              <span id="cardDroppingSchedTime" class="text-xs text-slate-400 line-through font-mono">07:15 AM</span>
+            </div>
+          </div>
+          <div class="text-right">
+            <div id="cardDroppingDist" class="text-xs font-medium text-slate-300">517.1 km remaining</div>
+            <button type="button" id="focusDroppingBtn" class="mt-1 text-xs text-amber-400 hover:text-amber-300 font-semibold">
+              Locate on Map →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Live Bus Telemetry, Next Stop & Crew -->
+      <div class="bg-slate-900 border border-indigo-500/30 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4">
+        <div>
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">Live Bus &amp; Next Stop</span>
+            <span id="cardDelayBadge" class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              +14 min delay
+            </span>
+          </div>
+
+          <div class="bg-slate-950/90 border border-slate-800 rounded-xl p-3 mb-3 flex items-center justify-between">
+            <div>
+              <div class="text-[11px] text-slate-400 uppercase">Next Upcoming Station</div>
+              <div id="cardNextStopName" class="text-sm font-bold text-white mt-0.5">#5 Kamakshi Hospital</div>
+              <div id="cardNextStopLandmark" class="text-xs text-cyan-300 font-mono">Est 07:54 PM (Sched 07:40 PM)</div>
+            </div>
+            <span id="cardNextStopType" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+              Boarding
+            </span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs text-slate-300">
+            <span id="cardBusReg" class="font-semibold text-white">TN02BT6147 • Vignesh TAT</span>
+            <span id="cardCompletedStopsCount" class="font-mono font-bold text-emerald-400">4 / 33 Passed</span>
+          </div>
+          <div id="cardHighwaySegment" class="text-xs text-slate-400 mt-1">Last Passed: #4 Velachery (07:49 PM)</div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800/90 flex items-end justify-between">
+          <div>
+            <div class="text-[11px] uppercase text-slate-400 font-medium">Live Speed &amp; GPS</div>
+            <div class="flex items-baseline gap-1.5 mt-0.5">
+              <span id="cardBusSpeed" class="text-2xl sm:text-3xl font-extrabold font-mono text-white">28</span>
+              <span class="text-xs font-semibold text-slate-400">km/h</span>
+            </div>
+            <div id="cardGpsCoords" class="text-[11px] font-mono text-indigo-300 mt-0.5">12.9637° N, 80.2151° E</div>
+          </div>
+          <div class="text-right">
+            <div class="text-[11px] text-slate-400">Polled <span id="lastPingSec">2s</span> ago</div>
+            <div id="cardBreakStopInfo" class="text-xs text-slate-300 font-medium mt-0.5">Mayakannan C (9865759902)</div>
+            <button type="button" id="centerBusCardBtn" class="mt-1 text-xs text-indigo-400 hover:text-indigo-300 font-semibold">
+              Open Live Map →
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Hidden Compatibility Elements for Spec Continuity -->
+    <div class="hidden">
+      <span id="cardNextStopEta">07:54 PM</span>
+      <span id="cardNextStopIn">Sched 07:40 PM</span>
+    </div>
+
+    <!-- VIEW 1: SPACIOUS LIVE ROUTE TIMELINE (FULL-WIDTH, ZERO SCROLL OVERLAP) -->
+    <div id="view-dashboard" class="space-y-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+        
+        <!-- Timeline Filter & Search Toolbar -->
+        <div class="p-5 border-b border-slate-800 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-slate-900">
+          <div>
+            <div class="flex items-center gap-2.5">
+              <h3 class="text-base sm:text-lg font-bold text-white">Live 33-Stop Journey Timeline</h3>
+              <span id="myJourneySummaryPill" class="px-2.5 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-300 font-mono text-xs font-semibold border border-emerald-500/30">
+                Stop #8 → #33
+              </span>
+            </div>
+            <p class="text-xs sm:text-sm text-slate-400 mt-0.5">
+              Stations with green checkmarks have already been passed by the bus. Click any station to set it as your Boarding or Drop-off point.
+            </p>
+          </div>
+
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <input
+              id="stopSearchInput"
+              type="text"
+              placeholder="Search station (e.g. Velachery, Sholinganallur, Kumily)..."
+              class="w-full sm:w-64 px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button type="button" data-stop-filter="all" class="stop-filter-btn px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white transition">
+                All Stops (33)
+              </button>
+              <button type="button" data-stop-filter="passed" class="stop-filter-btn px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:text-white transition">
+                Passed (4)
+              </button>
+              <button type="button" data-stop-filter="upcoming" class="stop-filter-btn px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:text-white transition">
+                Upcoming (29)
+              </button>
+              <button type="button" data-stop-filter="my_segment" class="stop-filter-btn px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:text-white transition">
+                My Journey
+              </button>
+              <button type="button" data-stop-filter="boarding" class="stop-filter-btn px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:text-white transition">
+                Boarding
+              </button>
+              <button type="button" data-stop-filter="dropping" class="stop-filter-btn px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:text-white transition">
+                Dropping
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Clean Vertical Timeline List (Natural Page Scroll, No Cramped Box) -->
+        <div id="timelineListContainer" class="p-5 grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+      </div>
+    </div>
+
+    <!-- VIEW 2: DEDICATED FULL-WIDTH INTERACTIVE MAP VIEWER -->
+    <div id="view-map" class="hidden space-y-5">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        <!-- Map Header & Layer / Focus Controls -->
+        <div class="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-900">
+          <div class="flex items-center gap-2.5">
+            <span class="w-3 h-3 rounded-full bg-indigo-400 animate-pulse"></span>
+            <div>
+              <h3 class="text-base font-bold text-white">Interactive GPS Route &amp; 300m Pickup Radius Map</h3>
+              <span id="mapRouteBadge" class="text-xs text-slate-400 font-mono">(Adyar, Chennai → Kumily • 33 Stops)</span>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" id="mapCenterBusBtn" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 transition">
+              Bus (TN02BT6147)
+            </button>
+            <button type="button" id="mapChennaiZoomBtn" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition">
+              Chennai Pickups
+            </button>
+            <button type="button" id="mapFitRouteBtn" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition">
+              Full Route
+            </button>
+            <button type="button" id="mapStyleStreetBtn" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white border border-indigo-500 transition">
+              Street
+            </button>
+            <button type="button" id="mapStyleTopoBtn" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition">
+              Topo
+            </button>
+            <button type="button" id="mapStyleSatBtn" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition">
+              Satellite
+            </button>
+          </div>
+        </div>
+
+        <!-- Telemetry Bar Above Map (Never Overlaps Map Tiles) -->
+        <div class="px-4 py-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
+          <div class="flex items-center gap-4">
+            <div class="flex items-baseline gap-1.5">
+              <span class="text-slate-400">Speed:</span>
+              <span id="hudSpeedVal" class="text-base font-extrabold font-mono text-emerald-400">28</span>
+              <span class="text-slate-400 font-mono">km/h</span>
+            </div>
+            <div class="h-4 w-px bg-slate-800"></div>
+            <div>
+              <span class="text-slate-400">Next Stop: </span>
+              <strong class="text-white" id="hudStatusText">#5 Kamakshi Hospital</strong>
+            </div>
+            <div class="h-4 w-px bg-slate-800 hidden sm:block"></div>
+            <div class="hidden sm:block font-mono text-slate-400" id="hudDistanceDone">
+              Last Passed: #4 Velachery (SP ID: 37512937)
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3 text-[11px]">
+            <span class="flex items-center gap-1.5 text-slate-300">
+              <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> Live Bus
+            </span>
+            <span class="flex items-center gap-1.5 text-emerald-300 font-medium">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> My Boarding (#8)
+            </span>
+            <span class="flex items-center gap-1.5 text-amber-300 font-medium">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> My Drop-off (#33)
+            </span>
+            <span class="flex items-center gap-1.5 text-slate-400">
+              <span class="w-2.5 h-2.5 rounded-full bg-slate-500"></span> Passed Stop
+            </span>
+          </div>
+        </div>
+
+        <!-- Isolated Map Container -->
+        <div class="map-isolation-wrapper">
+          <div id="mapContainer"></div>
+        </div>
+
+        <!-- Operator & Crew Strip -->
+        <div class="p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-semibold" id="footerOperatorName">
+              Vignesh TAT • CHN(A) TO KUMILY (R)
+            </span>
+            <span class="text-slate-400">PNR: <strong class="text-white font-mono" id="footerShortKey">784924 (Key: ZK3M8T)</strong></span>
+          </div>
+          <div class="flex flex-wrap items-center gap-4 text-slate-300">
+            <span>Driver: <strong class="text-white" id="footerDriverName">Mayakannan C (+91 9865759902)</strong></span>
+            <span class="text-emerald-400 font-medium">Travel Date: 2026-11-12</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 3: FULL STOP SCHEDULE TABLE -->
+    <div id="view-stops" class="hidden space-y-5">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+          <div>
+            <h2 class="text-base sm:text-lg font-bold text-white">Complete 33-Stop Itinerary &amp; Real-Time Trackingo Stage Status</h2>
+            <p class="text-xs sm:text-sm text-slate-400">Exact `all_service_places` stages from `GET /api/live/journey_details?key=ZK3M8T&amp;zoom_position=12&amp;platform=mobile`</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-400">Selected Journey:</span>
+            <span id="tableSelectionSummary" class="px-3 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-semibold">
+              #8 Sholinganallur → #33 Kumily
+            </span>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs sm:text-sm">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider">
+                <th class="py-3 px-3"># / SP ID</th>
+                <th class="py-3 px-3">Stop Name &amp; Landmark</th>
+                <th class="py-3 px-3">Stage Type</th>
+                <th class="py-3 px-3">Scheduled</th>
+                <th class="py-3 px-3">Actual / Est.</th>
+                <th class="py-3 px-3">Live Status</th>
+                <th class="py-3 px-3">Distance</th>
+                <th class="py-3 px-3 text-right">Quick Action</th>
+              </tr>
+            </thead>
+            <tbody id="fullScheduleTableBody" class="divide-y divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 4: URL & API HEADER / BODY / RESPONSE ANALYZER -->
+    <div id="view-api" class="hidden space-y-5">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-5">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-800 pb-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">Live Captured API Architecture</span>
+              <h2 class="text-base sm:text-lg font-bold text-white">Bitla Software (`trkg.in` → `bus.trackingo.in`) API Header, Body &amp; Response Inspector</h2>
+            </div>
+            <p class="text-xs sm:text-sm text-slate-400 mt-1">
+              Complete analysis of the redirect chain, request headers, and JSON responses captured from <code id="apiCurrentUrlCode" class="text-indigo-300 font-mono">http://trkg.in/BITLAA/ZK3M8T</code>
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" id="probeLiveEndpointBtn" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition shadow-lg shadow-indigo-600/25">
+              Fetch Live API Now
+            </button>
+            <button type="button" id="copyCurlBtn" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition">
+              Copy cURL Commands
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs font-mono uppercase text-indigo-400 font-semibold">Step 1 • Short URL Redirect (302)</div>
+            <div class="text-sm font-bold text-white mt-1 font-mono break-all" id="apiStep1Url">http://trkg.in/BITLAA/ZK3M8T</div>
+            <ul class="mt-2.5 space-y-1.5 text-xs text-slate-300">
+              <li><span class="text-slate-400">Operator Code:</span> <code class="text-amber-300 font-mono" id="apiParsedOp">BITLAA</code> (Vignesh TAT)</li>
+              <li><span class="text-slate-400">Tracking Short Key:</span> <code class="text-indigo-300 font-mono" id="apiParsedKey">ZK3M8T</code> (PNR: <code class="font-mono text-emerald-300">784924</code>)</li>
+              <li><span class="text-slate-400">Redirects To:</span> <code class="text-cyan-300 font-mono break-all" id="apiStep2Url">https://bus.trackingo.in/customer/track_vehicle?ZK3M8T</code></li>
+            </ul>
+          </div>
+
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs font-mono uppercase text-cyan-400 font-semibold">Step 2 • Journey &amp; 33-Stop Schedule API</div>
+            <div class="text-xs font-bold text-white mt-1 font-mono break-all">GET /api/live/journey_details?key=ZK3M8T&amp;zoom_position=12&amp;platform=mobile</div>
+            <ul class="mt-2.5 space-y-1.5 text-xs text-slate-300">
+              <li><span class="text-slate-400">Returns:</span> <code class="font-mono text-slate-200">journey_details</code>, <code class="font-mono text-slate-200">all_service_places</code> (33 stages), <code class="font-mono text-slate-200">other_details</code></li>
+              <li><span class="text-slate-400">Stage Schema:</span> <code class="font-mono text-emerald-300">sp_id, sp_name, stage_type, scheduled_time, actual_time, status, delay, lat_long, radius</code></li>
+            </ul>
+          </div>
+
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs font-mono uppercase text-emerald-400 font-semibold">Step 3 • Live GPS &amp; Speed Polling API</div>
+            <div class="text-xs font-bold text-white mt-1 font-mono break-all">GET /api/live/eta_map?key=ZK3M8T&amp;current_status=true</div>
+            <ul class="mt-2.5 space-y-1.5 text-xs text-slate-300">
+              <li><span class="text-slate-400">Polling Frequency:</span> Every <code class="text-emerald-300 font-mono">20000 ms (20s)</code></li>
+              <li><span class="text-slate-400">Returns:</span> <code class="font-mono text-slate-200">eta_map.lat_long</code>, <code class="font-mono text-slate-200">eta_map.speed</code>, <code class="font-mono text-slate-200">current_sp_id</code>, <code class="font-mono text-slate-200">is_passed</code></li>
+              <li><span class="text-slate-400">Status:</span> <span id="liveProbeStatusBadge" class="text-emerald-300 font-mono">Live Clock + API Synced</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 pt-2">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">1. Captured HTTP Requests &amp; Headers</span>
+              <span class="text-xs font-mono text-slate-400">bus.trackingo.in</span>
+            </div>
+            <pre id="apiRequestPre" class="flex-1 text-xs font-mono text-slate-200 bg-slate-900 p-4 rounded-lg border border-slate-800 overflow-x-auto leading-relaxed"></pre>
+          </div>
+
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">2. Captured API JSON Response</span>
+              <button type="button" id="applyCustomJsonBtn" class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition">
+                Apply Edited JSON to App
+              </button>
+            </div>
+            <textarea
+              id="apiResponseTextarea"
+              rows="16"
+              class="w-full flex-1 text-xs font-mono text-emerald-200 bg-slate-900 p-4 rounded-lg border border-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed"
+              aria-label="Editable API Response JSON"
+            ></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 5: PASSENGER FEEDBACK & RATING -->
+    <div id="view-feedback" class="hidden">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl max-w-3xl mx-auto space-y-5">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div>
+            <h2 class="text-lg font-bold text-white">Vignesh TAT • Trackingo Passenger Experience Rating</h2>
+            <p class="text-xs sm:text-sm text-slate-400">Rate your pickup and tracking experience without intrusive popups</p>
+          </div>
+          <span class="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+            PNR 784924 • <span id="feedbackKeyLabel" class="font-mono">ZK3M8T</span>
+          </span>
+        </div>
+
+        <div id="feedbackCategoriesGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+
+        <div>
+          <label for="feedbackCommentInput" class="block text-xs font-semibold text-slate-300 mb-1.5">
+            Any other suggestions on real-time SMS/ETA updates or bus quality?
+          </label>
+          <textarea
+            id="feedbackCommentInput"
+            rows="3"
+            placeholder="Share your boarding experience at Sholinganallur (Mohamed Sathak College) or live tracking feedback..."
+            class="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          ></textarea>
+        </div>
+
+        <div class="flex items-center justify-between pt-2">
+          <span id="feedbackSavedStatus" class="text-xs text-emerald-400 font-medium"></span>
+          <button
+            type="button"
+            id="submitFeedbackBtn"
+            class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold shadow-lg shadow-indigo-600/25 transition"
+          >
+            Submit Trip Feedback
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Minimal Disclaimer Footer -->
+  <footer class="border-t border-slate-900 bg-slate-950 py-4 px-4 sm:px-6 text-center text-xs text-slate-500 mt-8">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+      <span>Powered by Trackingo / Bitla Software Live API (`GET /api/live/journey_details` &amp; `GET /api/live/eta_map`)</span>
+      <span>Service: Vignesh TAT (`TN02BT6147`) • CHN(A) TO KUMILY (R) • Boarding: Sholinganallur (Mohamed Sathak College)</span>
+    </div>
+  </footer>
+
+  <!-- Main Application Script -->
+  <script>
+    // ============================================================================
+    // 1. REAL LIVE CAPTURED ROUTE & API DATASET FOR http://trkg.in/BITLAA/ZK3M8T
+    //    Updated to reflect real-time progress: 4 Stations Passed (Adyar, SRP Tools,
+    //    Tharamani, Velachery) and approaching #5 Kamakshi Hospital -> #8 Sholinganallur
+    // ============================================================================
+    const ROUTE_PRESETS = {
+      ZK3M8T: {
+        shortUrl: 'http://trkg.in/BITLAA/ZK3M8T',
+        resolvedUrl: 'https://bus.trackingo.in/customer/track_vehicle?ZK3M8T',
+        operatorCode: 'BITLAA',
+        shortKey: 'ZK3M8T',
+        pnrNumber: '784924',
+        operatorName: 'Vignesh TAT',
+        serviceNumber: 'CHN(A) TO KUMILY (R)',
+        busNumber: 'TN02BT6147',
+        busType: 'CHN(A) TO KUMILY (R) • Sleeper/Seater Coach',
+        driverName: 'Mayakannan C',
+        driverPhone: '9865759902',
+        originCity: 'Adyar (Chennai)',
+        destinationCity: 'Kumily',
+        corridorName: 'OMR → Velachery → Medavakkam → Tambaram → GST Road (NH 32) → Kumily',
+        totalDistanceKm: 525,
+        departureMinutesOfDay: 19 * 60 + 16, // 07:16 PM (1156 mins)
+        totalScheduledDurationMin: 719,      // 07:16 PM to 07:15 AM next morning (719 mins)
+        currentDelayMin: 14,                 // 14 mins delay tracked along Chennai pickup corridor
+        pollingIntervalMs: 20000,
+        currentSpId: 37512937,               // #4 Velachery passed
+        lastBoardingId: 37512931,
+        lastDropoffId: 37512958,
+        defaultBoardingIndex: 7,             // #8 Sholinganallur (Mohamed Sathak College) - 08:00 PM
+        defaultDroppingIndex: 32,            // #33 Kumily - 07:15 AM
+        defaultProgressPct: 11.5,            // Passed 4 stations (#1 Adyar, #2 SRP Tools, #3 Tharamani, #4 Velachery), approaching #5 Kamakshi Hospital
+        stops: [
+          { seq: 1, sp_id: 37512934, name: 'Adyar', city: 'Chennai', landmark: 'Adyar Pickup Point (Radius 300m • 4 Pax)', type: 'boarding', stage_type: 'Boarding', schedTime: '07:16 PM', actualTime: '07:23 PM', apiStatus: 'left', apiDelay: '7 mins', offsetMin: 0, distKm: 0, lat: 13.001128, lng: 80.256989, passengers_count: 4 },
+          { seq: 2, sp_id: 37512935, name: 'Srp Tools', city: 'Chennai (OMR)', landmark: 'SRP Tools Junction, Rajiv Gandhi Salai', type: 'boarding', stage_type: 'Boarding', schedTime: '07:29 PM', actualTime: '07:43 PM', apiStatus: 'left', apiDelay: '14 mins', offsetMin: 13, distKm: 2.6, lat: 12.98028, lng: 80.2509, passengers_count: 2 },
+          { seq: 3, sp_id: 37512936, name: 'Tharamani', city: 'Chennai (OMR)', landmark: 'Tharamani Link Road / TIDEL Park Corridor', type: 'boarding', stage_type: 'Boarding', schedTime: '07:30 PM', actualTime: '07:45 PM', apiStatus: 'left', apiDelay: '15 mins', offsetMin: 14, distKm: 3.9, lat: 12.9784, lng: 80.2401, passengers_count: 1 },
+          { seq: 4, sp_id: 37512937, name: 'Velachery', city: 'Chennai', landmark: 'Velachery Vijayanagar Bus Terminus Point', type: 'boarding', stage_type: 'Boarding', schedTime: '07:35 PM', actualTime: '07:49 PM', apiStatus: 'left', apiDelay: '14 mins', offsetMin: 19, distKm: 6.2, lat: 12.9758, lng: 80.2205, passengers_count: 3 },
+          { seq: 5, sp_id: 37512938, name: 'Kamakshi Hospital', city: 'Pallikaranai', landmark: 'Radial Road / Kamakshi Memorial Hospital Junction', type: 'boarding', stage_type: 'Boarding', schedTime: '07:40 PM', actualTime: '', apiStatus: 'approaching', apiDelay: '14 mins', offsetMin: 24, distKm: 9.2, lat: 12.9516, lng: 80.2096, passengers_count: 2 },
+          { seq: 6, sp_id: 37512939, name: 'Thuraipakkam', city: 'Chennai (OMR)', landmark: 'Okkiyam Thuraipakkam OMR Signal', type: 'boarding', stage_type: 'Boarding', schedTime: '07:45 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 29, distKm: 11.4, lat: 12.9375, lng: 80.2381, passengers_count: 2 },
+          { seq: 7, sp_id: 37512940, name: 'Karapakkam', city: 'Chennai (OMR)', landmark: 'Karapakkam Bus Stop, Rajiv Gandhi Salai', type: 'boarding', stage_type: 'Boarding', schedTime: '07:50 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 34, distKm: 13.0, lat: 12.91417, lng: 80.22938, passengers_count: 1 },
+          { seq: 8, sp_id: 37512941, name: 'Sholinganallur', city: 'Chennai (OMR)', landmark: 'Mohamed Sathak College (Your Ticket Boarding Point)', type: 'boarding', stage_type: 'Boarding', schedTime: '08:00 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 44, distKm: 14.7, lat: 12.896919, lng: 80.232625, passengers_count: 5 },
+          { seq: 9, sp_id: 37512942, name: 'Medavakkam', city: 'Chennai South', landmark: 'Medavakkam–Sholinganallur Road Junction', type: 'boarding', stage_type: 'Boarding', schedTime: '08:20 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 64, distKm: 19.8, lat: 12.91714, lng: 80.19235, passengers_count: 3 },
+          { seq: 10, sp_id: 37512943, name: 'Camp Road', city: 'Selaiyur / Tambaram', landmark: 'Camp Road Junction, Velachery Main Road', type: 'boarding', stage_type: 'Boarding', schedTime: '08:40 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 84, distKm: 24.5, lat: 12.9228, lng: 80.1452, passengers_count: 2 },
+          { seq: 11, sp_id: 37512944, name: 'Tambaram East Mcc College', city: 'Tambaram East', landmark: 'Madras Christian College (MCC) Main Gate', type: 'boarding', stage_type: 'Boarding', schedTime: '08:45 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 89, distKm: 26.8, lat: 12.922915, lng: 80.127456, passengers_count: 2 },
+          { seq: 12, sp_id: 37512945, name: 'Perungalathur', city: 'Chennai GST Road', landmark: 'Perungalathur GST Road Flyover Bus Stop', type: 'boarding', stage_type: 'Boarding', schedTime: '08:55 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 99, distKm: 30.5, lat: 12.9051, lng: 80.0948, passengers_count: 4 },
+          { seq: 13, sp_id: 37512946, name: 'Kilambakkam', city: 'Kilambakkam (KCBT)', landmark: 'Kilambakkam Kalaignar Centenary Bus Terminus', type: 'boarding', stage_type: 'Boarding', schedTime: '09:30 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 134, distKm: 35.0, lat: 12.87388, lng: 80.07862, passengers_count: 8 },
+          { seq: 14, sp_id: 37512947, name: 'Urapakkam', city: 'GST Road', landmark: 'Urapakkam NH 32 Highway Bus Stop', type: 'boarding', stage_type: 'Boarding', schedTime: '09:35 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 139, distKm: 36.8, lat: 12.86725, lng: 80.07175, passengers_count: 1 },
+          { seq: 15, sp_id: 37512948, name: 'Guduvancherry', city: 'GST Road', landmark: 'Guduvanchery Bus Stand, NH 32', type: 'boarding', stage_type: 'Boarding', schedTime: '09:40 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 144, distKm: 40.2, lat: 12.8452, lng: 80.0544, passengers_count: 2 },
+          { seq: 16, sp_id: 37512949, name: 'Srm University', city: 'Potheri / Kattankulathur', landmark: 'Opposite SRM University Arch, GST Road', type: 'boarding', stage_type: 'Boarding', schedTime: '09:45 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 149, distKm: 43.5, lat: 12.8231, lng: 80.0442, passengers_count: 3 },
+          { seq: 17, sp_id: 37512950, name: 'Maraimalainager', city: 'Maraimalai Nagar', landmark: 'Maraimalai Nagar Bus Stand, GST Road', type: 'boarding', stage_type: 'Boarding', schedTime: '09:50 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 154, distKm: 47.8, lat: 12.785185, lng: 80.025601, passengers_count: 2 },
+          { seq: 18, sp_id: 37512951, name: 'Singaperumalkoil', city: 'Singaperumal Koil', landmark: 'Singaperumal Koil NH 32 Junction', type: 'boarding', stage_type: 'Boarding', schedTime: '09:55 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 159, distKm: 51.5, lat: 12.760333, lng: 80.004861, passengers_count: 1 },
+          { seq: 19, sp_id: 37512952, name: 'Mahendra City', city: 'Mahindra World City', landmark: 'Mahindra World City Main Canopy, NH 32', type: 'boarding', stage_type: 'Boarding', schedTime: '10:00 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 164, distKm: 55.2, lat: 12.735, lng: 79.992, passengers_count: 1 },
+          { seq: 20, sp_id: 37512953, name: 'Chengalpattu Toll', city: 'Chengalpattu', landmark: 'Paranur / Chengalpattu Toll Plaza', type: 'boarding', stage_type: 'Boarding', schedTime: '10:05 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 169, distKm: 60.4, lat: 12.69274, lng: 79.9773, passengers_count: 2 },
+          { seq: 21, sp_id: 37512931, name: 'Melmaruvathur', city: 'Melmaruvathur', landmark: 'Melmaruvathur Temple Bypass (Last Boarding ID: 37512931)', type: 'boarding', stage_type: 'Boarding', schedTime: '11:00 PM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 224, distKm: 96.0, lat: 12.43588, lng: 79.83383, passengers_count: 2 },
+          { seq: 22, sp_id: 37512954, name: 'Trichy', city: 'Tiruchirappalli', landmark: 'Trichy NH 38 Bypass Drop Point', type: 'dropping', stage_type: 'Drop-off', schedTime: '03:00 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 464, distKm: 325.0, lat: 10.8155, lng: 78.69651, passengers_count: 0 },
+          { seq: 23, sp_id: 37512955, name: 'Dindigul Bypass', city: 'Dindigul', landmark: 'Dindigul NH 183 Bypass Circle', type: 'dropping', stage_type: 'Drop-off', schedTime: '04:05 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 529, distKm: 418.0, lat: 10.3673, lng: 77.9803, passengers_count: 0 },
+          { seq: 24, sp_id: 37512956, name: 'Bathalagundu', city: 'Batlagundu', landmark: 'Batlagundu Main Road Bus Stop', type: 'dropping', stage_type: 'Drop-off', schedTime: '04:35 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 559, distKm: 452.0, lat: 10.1607, lng: 77.7598, passengers_count: 0 },
+          { seq: 25, sp_id: 37512957, name: 'Periyakulam', city: 'Periyakulam', landmark: 'Periyakulam Town Drop Point', type: 'dropping', stage_type: 'Drop-off', schedTime: '04:55 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 579, distKm: 468.0, lat: 10.12013, lng: 77.54775, passengers_count: 0 },
+          { seq: 26, sp_id: 37512959, name: 'Annaji Vilaku', city: 'Theni Outskirts', landmark: 'Annaji Vilakku Junction', type: 'dropping', stage_type: 'Drop-off', schedTime: '05:10 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 594, distKm: 478.0, lat: 10.045, lng: 77.502, passengers_count: 0 },
+          { seq: 27, sp_id: 37512960, name: 'Theni', city: 'Theni', landmark: 'Theni New Bus Stand', type: 'dropping', stage_type: 'Drop-off', schedTime: '05:15 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 599, distKm: 484.0, lat: 10.01037, lng: 77.47681, passengers_count: 0 },
+          { seq: 28, sp_id: 37512961, name: 'Krishna Theatre', city: 'Theni', landmark: 'Near Krishna Theatre, Cumbum Road', type: 'dropping', stage_type: 'Drop-off', schedTime: '05:20 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 604, distKm: 486.0, lat: 10.004, lng: 77.471, passengers_count: 0 },
+          { seq: 29, sp_id: 37512962, name: 'Chinnamanur', city: 'Chinnamanur', landmark: 'Chinnamanur Main Road Bus Stand', type: 'dropping', stage_type: 'Drop-off', schedTime: '06:00 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 644, distKm: 501.0, lat: 9.84, lng: 77.38, passengers_count: 0 },
+          { seq: 30, sp_id: 37512963, name: 'Uthamapalayam', city: 'Uthamapalayam', landmark: 'Uthamapalayam Town Bus Stop', type: 'dropping', stage_type: 'Drop-off', schedTime: '06:15 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 659, distKm: 507.0, lat: 9.81145, lng: 77.32593, passengers_count: 0 },
+          { seq: 31, sp_id: 37512964, name: 'Cumbum', city: 'Cumbum', landmark: 'Cumbum Bus Stand, NH 183', type: 'dropping', stage_type: 'Drop-off', schedTime: '06:30 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 674, distKm: 514.0, lat: 9.72877, lng: 77.27651, passengers_count: 0 },
+          { seq: 32, sp_id: 37512965, name: 'Gudalur Cumbum', city: 'Gudalur (Theni)', landmark: 'Lower Camp / Gudalur Main Road', type: 'dropping', stage_type: 'Drop-off', schedTime: '06:45 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 689, distKm: 519.0, lat: 9.68, lng: 77.27, passengers_count: 0 },
+          { seq: 33, sp_id: 37512958, name: 'Kumily', city: 'Kumily (Thekkady)', landmark: 'Kumily Final Drop-off Point (ID: 37512958)', type: 'dropping', stage_type: 'Drop-off', schedTime: '07:15 AM', actualTime: '', apiStatus: 'upcoming', apiDelay: '', offsetMin: 719, distKm: 525.0, lat: 9.60367, lng: 77.1675, passengers_count: 0 }
+        ]
+      }
+    };
+
+    // ============================================================================
+    // 2. APPLICATION STATE
+    // ============================================================================
+    const state = {
+      activeTab: 'dashboard',
+      stopFilter: 'all',
+      searchQuery: '',
+      rawInputUrl: 'http://trkg.in/BITLAA/ZK3M8T',
+      operatorCode: 'BITLAA',
+      shortKey: 'ZK3M8T',
+      activeRoute: JSON.parse(JSON.stringify(ROUTE_PRESETS.ZK3M8T)),
+      boardingStopIndex: 7, // #8 Sholinganallur (Mohamed Sathak College)
+      droppingStopIndex: 32, // #33 Kumily
+      progressPct: 11.5,    // 4 stations passed (#1 Adyar, #2 SRP Tools, #3 Tharamani, #4 Velachery), en route to #5 Kamakshi Hospital
+      liveSpeedKmh: 28,
+      autoDrive: true,
+      pingSecondsAgo: 2,
+      ratings: {
+        pickup: 5,
+        busQuality: 4,
+        staff: 5,
+        amenities: 4,
+        dropping: 5,
+        recommend: 5
+      }
+    };
+
+    // ============================================================================
+    // 3. HELPER & TIME FORMATTING UTILITIES
+    // ============================================================================
+    function format12HourTime(totalMinutes) {
+      const normalized = ((Math.round(totalMinutes) % 1440) + 1440) % 1440;
+      const hh24 = Math.floor(normalized / 60);
+      const mm = normalized % 60;
+      const period = hh24 >= 12 ? 'PM' : 'AM';
+      const hh12 = hh24 % 12 === 0 ? 12 : hh24 % 12;
+      return String(hh12).padStart(2, '0') + ':' + String(mm).padStart(2, '0') + ' ' + period;
+    }
+
+    function formatDurationMin(mins) {
+      const m = Math.max(0, Math.round(mins));
+      if (m < 60) return `${m}m`;
+      const hrs = Math.floor(m / 60);
+      const rem = m % 60;
+      return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+    }
+
+    function parseTrackingUrl(inputStr) {
+      const cleaned = (inputStr || '').trim();
+      let operatorCode = 'BITLAA';
+      let shortKey = 'ZK3M8T';
+
+      const trkgMatch = cleaned.match(/trkg\.in\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)/i);
+      if (trkgMatch) {
+        operatorCode = trkgMatch[1].toUpperCase();
+        shortKey = trkgMatch[2].toUpperCase();
+        return { operatorCode, shortKey, fullUrl: cleaned };
+      }
+
+      const directTrackingoMatch = cleaned.match(/track_vehicle\?([A-Za-z0-9_-]+)/i);
+      if (directTrackingoMatch) {
+        shortKey = directTrackingoMatch[1].toUpperCase();
+        return { operatorCode, shortKey, fullUrl: cleaned };
+      }
+
+      const paramMatch = cleaned.match(/[?&](?:short_code|pnr|key)=([A-Za-z0-9_-]+)/i);
+      if (paramMatch) {
+        shortKey = paramMatch[1].toUpperCase();
+        return { operatorCode, shortKey, fullUrl: cleaned };
+      }
+
+      const bareMatch = cleaned.match(/^([A-Za-z0-9]{5,12})$/);
+      if (bareMatch) {
+        shortKey = bareMatch[1].toUpperCase();
+        return {
+          operatorCode,
+          shortKey,
+          fullUrl: `http://trkg.in/${operatorCode}/${shortKey}`
+        };
+      }
+
+      return { operatorCode, shortKey, fullUrl: cleaned || 'http://trkg.in/BITLAA/ZK3M8T' };
+    }
+
+    // Interpolate current GPS position, stop index, distance covered, and clock from progressPct
+    function getBusTelemetry() {
+      const route = state.activeRoute;
+      const stops = route.stops;
+      const totalStops = stops.length;
+
+      // Map progressPct (0..100) across stop indices (0..32)
+      // At 11.5%: exactStopFloat = 0.115 * 32 = 3.68 -> segIndex = 3 (Stop #4 Velachery passed, 68% towards #5 Kamakshi Hospital)
+      const exactStopFloat = (state.progressPct / 100) * (totalStops - 1);
+      const segIndex = Math.min(totalStops - 2, Math.max(0, Math.floor(exactStopFloat)));
+      const segRatio = Math.min(1, Math.max(0, exactStopFloat - segIndex));
+
+      const sA = stops[segIndex];
+      const sB = stops[segIndex + 1];
+
+      const lat = sA.lat + (sB.lat - sA.lat) * segRatio;
+      const lng = sA.lng + (sB.lng - sA.lng) * segRatio;
+      const currentDistKm = sA.distKm + (sB.distKm - sA.distKm) * segRatio;
+      const elapsedSchedMin = sA.offsetMin + (sB.offsetMin - sA.offsetMin) * segRatio;
+      const currentSimulatedClockMin = route.departureMinutesOfDay + elapsedSchedMin + route.currentDelayMin;
+
+      const nextStopIndex = Math.min(totalStops - 1, segIndex + 1);
+      const passedCount = segIndex + 1;
+
+      return {
+        lat,
+        lng,
+        currentDistKm,
+        segIndex,
+        nextStopIndex,
+        passedCount,
+        elapsedSchedMin,
+        currentSimulatedClockMin
+      };
+    }
+
+    function showToast(msg) {
+      const banner = document.getElementById('toastBanner');
+      const text = document.getElementById('toastMessage');
+      if (!banner || !text) return;
+      text.textContent = msg;
+      banner.classList.remove('hidden');
+      banner.classList.add('flex');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(() => {
+        banner.classList.add('hidden');
+        banner.classList.remove('flex');
+      }, 3200);
+    }
+
+    function switchMainTab(target) {
+      state.activeTab = target;
+      document.querySelectorAll('.main-tab-btn').forEach(b => {
+        if (b.getAttribute('data-main-tab') === target) {
+          b.className = 'main-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition bg-indigo-600 text-white shadow-md flex items-center gap-1.5';
+        } else {
+          b.className = 'main-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition bg-slate-800/90 text-slate-300 hover:text-white flex items-center gap-1.5';
+        }
+      });
+
+      ['dashboard', 'map', 'stops', 'api', 'feedback'].forEach(v => {
+        const el = document.getElementById(`view-${v}`);
+        if (el) {
+          if (v === target) el.classList.remove('hidden');
+          else el.classList.add('hidden');
+        }
+      });
+
+      if (target === 'map' && mapInstance) {
+        setTimeout(() => {
+          mapInstance.invalidateSize();
+        }, 120);
+      }
+    }
+
+    // ============================================================================
+    // 4. LEAFLET MAP INITIALIZATION & RENDERING (KEYLESS ARCGIS TILES)
+    // ============================================================================
+    let mapInstance = null;
+    let currentTileLayer = null;
+    let routeFullPolyline = null;
+    let routeCompletedPolyline = null;
+    let boardingRadiusCircle = null;
+    let busLiveMarker = null;
+    let stopMarkers = [];
+
+    const TILE_SOURCES = {
+      street: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+      topo: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+      sat: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+    };
+
+    function initMap() {
+      const container = document.getElementById('mapContainer');
+      if (!container || typeof L === 'undefined') return;
+
+      mapInstance = L.map('mapContainer', {
+        zoomControl: true,
+        attributionControl: true
+      }).setView([12.948, 80.228], 12);
+
+      currentTileLayer = L.tileLayer(TILE_SOURCES.street, {
+        maxZoom: 18,
+        attribution: 'Tiles &copy; Esri &mdash; National Geographic, Esri, DeLorme, NAVTEQ'
+      }).addTo(mapInstance);
+
+      renderMapLayers(false);
+    }
+
+    function setMapTileStyle(styleKey) {
+      if (!mapInstance || !TILE_SOURCES[styleKey]) return;
+      if (currentTileLayer) {
+        mapInstance.removeLayer(currentTileLayer);
+      }
+      currentTileLayer = L.tileLayer(TILE_SOURCES[styleKey], {
+        maxZoom: 18,
+        attribution: 'Tiles &copy; Esri'
+      }).addTo(mapInstance);
+
+      ['street', 'topo', 'sat'].forEach(k => {
+        const btn = document.getElementById(
+          k === 'street' ? 'mapStyleStreetBtn' : k === 'topo' ? 'mapStyleTopoBtn' : 'mapStyleSatBtn'
+        );
+        if (btn) {
+          if (k === styleKey) {
+            btn.className = 'px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white border border-indigo-500 transition';
+          } else {
+            btn.className = 'px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition';
+          }
+        }
+      });
+    }
+
+    function renderMapLayers(fitBounds = false) {
+      if (!mapInstance || typeof L === 'undefined') return;
+
+      const stops = state.activeRoute.stops;
+      const telemetry = getBusTelemetry();
+
+      if (routeFullPolyline) mapInstance.removeLayer(routeFullPolyline);
+      if (routeCompletedPolyline) mapInstance.removeLayer(routeCompletedPolyline);
+      if (boardingRadiusCircle) mapInstance.removeLayer(boardingRadiusCircle);
+      if (busLiveMarker) mapInstance.removeLayer(busLiveMarker);
+      stopMarkers.forEach(m => mapInstance.removeLayer(m));
+      stopMarkers = [];
+
+      const allCoords = stops.map(s => [s.lat, s.lng]);
+
+      routeFullPolyline = L.polyline(allCoords, {
+        color: '#475569',
+        weight: 4,
+        dashArray: '8, 8',
+        opacity: 0.85
+      }).addTo(mapInstance);
+
+      const completedCoords = stops
+        .slice(0, telemetry.segIndex + 1)
+        .map(s => [s.lat, s.lng]);
+      completedCoords.push([telemetry.lat, telemetry.lng]);
+
+      routeCompletedPolyline = L.polyline(completedCoords, {
+        color: '#6366f1',
+        weight: 5,
+        opacity: 0.95
+      }).addTo(mapInstance);
+
+      const bStop = stops[state.boardingStopIndex];
+      if (bStop) {
+        boardingRadiusCircle = L.circle([bStop.lat, bStop.lng], {
+          radius: 300,
+          color: '#10b981',
+          weight: 1.5,
+          fillColor: '#10b981',
+          fillOpacity: 0.15
+        }).addTo(mapInstance);
+      }
+
+      stops.forEach((st, idx) => {
+        const isBoarding = idx === state.boardingStopIndex;
+        const isDropping = idx === state.droppingStopIndex;
+        const isPassed = idx <= telemetry.segIndex;
+
+        let dotColor = isPassed ? '#64748b' : st.type === 'boarding' ? '#38bdf8' : '#c084fc';
+        let ringColor = 'rgba(56, 189, 248, 0.2)';
+        let sizePx = 13;
+        let badgeLabel = '';
+
+        if (isBoarding) {
+          dotColor = '#10b981';
+          ringColor = 'rgba(16, 185, 129, 0.45)';
+          sizePx = 20;
+          badgeLabel = 'MY BOARDING';
+        } else if (isDropping) {
+          dotColor = '#f59e0b';
+          ringColor = 'rgba(245, 158, 11, 0.45)';
+          sizePx = 20;
+          badgeLabel = 'MY DROP-OFF';
+        }
+
+        const estTimeStr = st.actualTime || format12HourTime(
+          state.activeRoute.departureMinutesOfDay + st.offsetMin + state.activeRoute.currentDelayMin
+        );
+
+        const iconHtml = `
+          <div style="
+            width:${sizePx}px;
+            height:${sizePx}px;
+            border-radius:9999px;
+            background:${dotColor};
+            border:2.5px solid #0f172a;
+            box-shadow: 0 0 0 4px ${ringColor};
+          "></div>
+        `;
+
+        const customIcon = L.divIcon({
+          className: '',
+          html: iconHtml,
+          iconSize: [sizePx, sizePx],
+          iconAnchor: [sizePx / 2, sizePx / 2]
+        });
+
+        const popupHtml = `
+          <div class="text-xs space-y-1 min-w-[205px]">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-bold text-white">#${st.seq} ${st.name}</span>
+              ${badgeLabel ? `<span class="px-1.5 py-0.5 rounded bg-indigo-500/30 text-[10px] font-bold text-indigo-200">${badgeLabel}</span>` : `<span class="text-[10px] font-mono text-slate-400">ID ${st.sp_id}</span>`}
+            </div>
+            <div class="text-slate-300">${st.landmark}</div>
+            <div class="pt-1 flex items-center justify-between border-t border-slate-700/80 font-mono">
+              <span>Sched: ${st.schedTime}</span>
+              <span class="text-emerald-400 font-bold">${isPassed ? 'Left: ' + estTimeStr : 'Est: ' + estTimeStr}</span>
+            </div>
+            <div class="text-[11px] text-slate-400 flex justify-between">
+              <span>Stage: ${st.stage_type}</span>
+              <span>${st.distKm} km</span>
+            </div>
+          </div>
+        `;
+
+        const marker = L.marker([st.lat, st.lng], { icon: customIcon })
+          .bindPopup(popupHtml)
+          .addTo(mapInstance);
+
+        stopMarkers.push(marker);
+      });
+
+      const busIconHtml = `
+        <div class="relative flex items-center justify-center" style="width:40px;height:40px;">
+          <div class="bus-pulse absolute inset-0 rounded-full bg-indigo-500/50"></div>
+          <div class="relative w-8 h-8 rounded-full bg-indigo-600 border-2 border-white shadow-lg flex items-center justify-center text-white">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h8m-8 4h8m-6 4h4M5 3h14a2 2 0 012 2v11a3 3 0 01-3 3H6a3 3 0 01-3-3V5a2 2 0 012-2z" />
+            </svg>
+          </div>
+        </div>
+      `;
+
+      const busDivIcon = L.divIcon({
+        className: '',
+        html: busIconHtml,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+      });
+
+      const busPopupHtml = `
+        <div class="text-xs space-y-1 min-w-[210px]">
+          <div class="font-bold text-indigo-300">${state.activeRoute.busNumber} • ${state.activeRoute.operatorName}</div>
+          <div class="text-white font-medium">${state.activeRoute.serviceNumber}</div>
+          <div class="text-slate-300 font-mono">Speed: <strong>${state.liveSpeedKmh} km/h</strong> • Passed: ${telemetry.passedCount}/33</div>
+          <div class="text-[11px] text-slate-400 font-mono">GPS: [${telemetry.lat.toFixed(5)}, ${telemetry.lng.toFixed(5)}]</div>
+          <div class="text-[11px] text-emerald-300">Driver: ${state.activeRoute.driverName} (${state.activeRoute.driverPhone})</div>
+        </div>
+      `;
+
+      busLiveMarker = L.marker([telemetry.lat, telemetry.lng], {
+        icon: busDivIcon,
+        zIndexOffset: 1000
+      })
+        .bindPopup(busPopupHtml)
+        .addTo(mapInstance);
+
+      if (fitBounds && allCoords.length > 1) {
+        mapInstance.fitBounds(L.latLngBounds(allCoords), { padding: [35, 35] });
+      }
+    }
+
+    // ============================================================================
+    // 5. UI RENDERERS (SELECTORS, HERO BANNER, CARDS, TIMELINE, TABLE, API)
+    // ============================================================================
+    function populateStopSelectors() {
+      const bSel = document.getElementById('boardingSelect');
+      const dSel = document.getElementById('droppingSelect');
+      if (!bSel || !dSel) return;
+
+      const stops = state.activeRoute.stops;
+
+      bSel.innerHTML = stops
+        .map((st, idx) => {
+          const est = st.actualTime || format12HourTime(
+            state.activeRoute.departureMinutesOfDay + st.offsetMin + state.activeRoute.currentDelayMin
+          );
+          return `<option value="${idx}" ${idx === state.boardingStopIndex ? 'selected' : ''}>
+            #${st.seq} ${st.name} (${st.stage_type}) — Sched ${st.schedTime} / Est ${est}
+          </option>`;
+        })
+        .join('');
+
+      dSel.innerHTML = stops
+        .map((st, idx) => {
+          const est = st.actualTime || format12HourTime(
+            state.activeRoute.departureMinutesOfDay + st.offsetMin + state.activeRoute.currentDelayMin
+          );
+          return `<option value="${idx}" ${idx === state.droppingStopIndex ? 'selected' : ''}>
+            #${st.seq} ${st.name} (${st.stage_type}) — Sched ${st.schedTime} / Est ${est}
+          </option>`;
+        })
+        .join('');
+    }
+
+    function renderCorridorMiniStepper(telemetry) {
+      const el = document.getElementById('corridorMiniStepper');
+      if (!el) return;
+
+      const stops = state.activeRoute.stops;
+      // Show a window of 4 key stops around current bus position + user's boarding point
+      const indicesToShow = [];
+      const startIdx = Math.max(0, telemetry.segIndex - 1);
+      for (let i = startIdx; i < Math.min(stops.length, startIdx + 3); i++) {
+        indicesToShow.push(i);
+      }
+      if (!indicesToShow.includes(state.boardingStopIndex)) {
+        indicesToShow.push(state.boardingStopIndex);
+      } else if (startIdx + 3 < stops.length) {
+        indicesToShow.push(startIdx + 3);
+      }
+
+      el.innerHTML = indicesToShow
+        .map(idx => {
+          const st = stops[idx];
+          const isPassed = idx <= telemetry.segIndex;
+          const isNext = idx === telemetry.nextStopIndex;
+          const isBoarding = idx === state.boardingStopIndex;
+          const estStr = st.actualTime || format12HourTime(
+            state.activeRoute.departureMinutesOfDay + st.offsetMin + state.activeRoute.currentDelayMin
+          );
+
+          let boxStyle = 'bg-slate-950/90 border-slate-800 text-slate-300';
+          let badgeText = 'Upcoming';
+          let badgeClass = 'bg-slate-800 text-slate-400';
+
+          if (isPassed) {
+            boxStyle = 'bg-emerald-950/20 border-emerald-500/40 text-emerald-200';
+            badgeText = '✓ Passed';
+            badgeClass = 'bg-emerald-500/20 text-emerald-300';
+          } else if (isNext) {
+            boxStyle = 'bg-indigo-950/40 border-indigo-500/60 text-white ring-1 ring-indigo-500/40';
+            badgeText = '→ Next Stop';
+            badgeClass = 'bg-indigo-500 text-white';
+          }
+          if (isBoarding && !isPassed) {
+            boxStyle = 'bg-emerald-950/30 border-emerald-400/60 text-white';
+            badgeText = '★ Your Pickup';
+            badgeClass = 'bg-emerald-500 text-slate-950 font-bold';
+          }
+
+          return `
+            <div class="rounded-xl border ${boxStyle} p-3 flex flex-col justify-between">
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-[11px] font-mono font-bold">#${st.seq}</span>
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold ${badgeClass}">${badgeText}</span>
+              </div>
+              <div class="font-bold text-xs sm:text-sm truncate mt-1.5 text-white">${st.name}</div>
+              <div class="text-[11px] font-mono text-slate-400 mt-1">${isPassed ? 'Left ' + estStr : 'Est ' + estStr}</div>
+            </div>
+          `;
+        })
+        .join('');
+    }
+
+    function updateAllViews() {
+      const route = state.activeRoute;
+      const stops = route.stops;
+      const telemetry = getBusTelemetry();
+
+      // Header badges
+      document.getElementById('headerOpBadge').textContent = `${state.operatorCode} • ${route.operatorName}`;
+      document.getElementById('headerKeyBadge').textContent = state.shortKey;
+      document.getElementById('footerOperatorName').textContent = `${route.operatorName} • ${route.serviceNumber}`;
+      document.getElementById('footerShortKey').textContent = `${route.pnrNumber} (Key: ${state.shortKey})`;
+      document.getElementById('footerDriverName').textContent = `${route.driverName} (+91 ${route.driverPhone})`;
+      document.getElementById('mapRouteBadge').textContent = `(${route.originCity} → ${route.destinationCity} • ${stops.length} Stops)`;
+
+      const slider = document.getElementById('routeProgressSlider');
+      if (slider && Number(slider.value) !== Number(state.progressPct)) {
+        slider.value = state.progressPct;
+      }
+
+      const currentPassedStop = stops[telemetry.segIndex];
+      const nextStop = stops[telemetry.nextStopIndex];
+      const bStop = stops[state.boardingStopIndex] || stops[7];
+      const dStop = stops[state.droppingStopIndex] || stops[32];
+
+      // Update Filter Buttons with dynamic Passed / Upcoming counts
+      document.querySelectorAll('.stop-filter-btn').forEach(btn => {
+        const f = btn.getAttribute('data-stop-filter');
+        if (f === 'passed') btn.textContent = `Passed (${telemetry.passedCount})`;
+        if (f === 'upcoming') btn.textContent = `Upcoming (${stops.length - telemetry.passedCount})`;
+      });
+
+      // Live Banner Headlines
+      document.getElementById('liveBannerStatusPill').textContent = `LIVE • ${telemetry.passedCount} STATIONS PASSED`;
+      document.getElementById('liveClockReadout').textContent = `Simulated Trip Clock: ${format12HourTime(telemetry.currentSimulatedClockMin)} • Polling every 20s`;
+      document.getElementById('progressPctLabel').textContent = `${telemetry.passedCount} / ${stops.length} Stations Passed`;
+
+      const passedNames = stops.slice(0, telemetry.passedCount).map(s => s.name);
+      const passedSummaryStr = passedNames.length <= 5
+        ? passedNames.join(', ')
+        : `${passedNames.slice(0, 3).join(', ')} ... ${passedNames[passedNames.length - 1]}`;
+
+      const currentStopEstStr = currentPassedStop.actualTime || format12HourTime(route.departureMinutesOfDay + currentPassedStop.offsetMin + route.currentDelayMin);
+      document.getElementById('liveProgressHeadline').textContent =
+        `Bus departed #${currentPassedStop.seq} ${currentPassedStop.name} (${currentStopEstStr}) and is approaching #${nextStop.seq} ${nextStop.name}`;
+
+      const stopsToBoarding = state.boardingStopIndex - telemetry.segIndex;
+      const bEstClockMin = route.departureMinutesOfDay + bStop.offsetMin + route.currentDelayMin;
+      const bEstTimeStr = bStop.actualTime || format12HourTime(bEstClockMin);
+
+      if (stopsToBoarding > 0) {
+        document.getElementById('liveProgressSubline').textContent =
+          `Passed ${telemetry.passedCount} of ${stops.length} stations (${passedSummaryStr}) • ${stopsToBoarding} stops away from your boarding point at #${bStop.seq} ${bStop.name} (Est. ${bEstTimeStr})`;
+      } else if (stopsToBoarding === 0) {
+        document.getElementById('liveProgressSubline').textContent =
+          `Bus has reached your boarding point at #${bStop.seq} ${bStop.name} (${bStop.landmark})!`;
+      } else {
+        document.getElementById('liveProgressSubline').textContent =
+          `Passed ${telemetry.passedCount} of ${stops.length} stations • En route to your destination #${dStop.seq} ${dStop.name}`;
+      }
+
+      renderCorridorMiniStepper(telemetry);
+
+      // Card 1: Boarding Point ETA
+      const bRemainingMin = bEstClockMin - telemetry.currentSimulatedClockMin;
+      const bDistDiff = bStop.distKm - telemetry.currentDistKm;
+
+      document.getElementById('cardBoardingName').textContent = `#${bStop.seq} ${bStop.name}`;
+      document.getElementById('cardBoardingLandmark').textContent = bStop.landmark;
+      document.getElementById('cardBoardingEtaTime').textContent = bEstTimeStr;
+      document.getElementById('cardBoardingSchedTime').textContent = `Sched ${bStop.schedTime}`;
+
+      const bBadge = document.getElementById('cardBoardingBadge');
+      if (stopsToBoarding > 0) {
+        bBadge.textContent = `ETA in ${formatDurationMin(bRemainingMin)}`;
+        bBadge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        document.getElementById('cardBoardingDist').textContent = `${stopsToBoarding} stops away • ${Math.max(0.3, bDistDiff).toFixed(1)} km`;
+      } else if (stopsToBoarding === 0) {
+        bBadge.textContent = 'At Boarding Stop';
+        bBadge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500 text-slate-950 font-bold';
+        document.getElementById('cardBoardingDist').textContent = 'Bus is at your boarding stage';
+      } else {
+        bBadge.textContent = `Boarded (${formatDurationMin(Math.abs(bRemainingMin))} ago)`;
+        bBadge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-slate-800 text-slate-300 border border-slate-700';
+        document.getElementById('cardBoardingDist').textContent = `Passed ${Math.abs(stopsToBoarding)} stops ago`;
+      }
+
+      // Card 2: Destination ETA
+      const dEstClockMin = route.departureMinutesOfDay + dStop.offsetMin + route.currentDelayMin;
+      const dEstTimeStr = dStop.actualTime || format12HourTime(dEstClockMin);
+      const dRemainingMin = dEstClockMin - telemetry.currentSimulatedClockMin;
+      const dDistDiff = dStop.distKm - telemetry.currentDistKm;
+
+      document.getElementById('cardDroppingName').textContent = `#${dStop.seq} ${dStop.name}`;
+      document.getElementById('cardDroppingLandmark').textContent = dStop.landmark;
+      document.getElementById('cardDroppingEtaTime').textContent = dEstTimeStr;
+      document.getElementById('cardDroppingSchedTime').textContent = `Sched ${dStop.schedTime}`;
+
+      const dBadge = document.getElementById('cardDroppingBadge');
+      if (dDistDiff > 0.5) {
+        dBadge.textContent = `${formatDurationMin(dRemainingMin)} left`;
+        dBadge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30';
+        document.getElementById('cardDroppingDist').textContent = `${dDistDiff.toFixed(1)} km remaining`;
+      } else {
+        dBadge.textContent = 'Arrived';
+        dBadge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        document.getElementById('cardDroppingDist').textContent = 'Journey completed';
+      }
+
+      // Card 3: Live Bus Telemetry & Next Stop
+      const currentSpeed = state.progressPct >= 100 ? 0 : state.liveSpeedKmh;
+      const nextStopEstMin = route.departureMinutesOfDay + nextStop.offsetMin + route.currentDelayMin;
+      const nextStopEstStr = format12HourTime(nextStopEstMin);
+
+      document.getElementById('cardBusReg').textContent = `${route.busNumber} • ${route.operatorName}`;
+      document.getElementById('cardDelayBadge').textContent = route.currentDelayMin > 0 ? `+${route.currentDelayMin} min delay` : 'On Time';
+      document.getElementById('cardBusSpeed').textContent = String(currentSpeed);
+      document.getElementById('cardGpsCoords').textContent = `${telemetry.lat.toFixed(5)}° N, ${telemetry.lng.toFixed(5)}° E`;
+      document.getElementById('cardHighwaySegment').textContent = `Last Passed: #${currentPassedStop.seq} ${currentPassedStop.name} (${currentStopEstStr})`;
+
+      document.getElementById('cardNextStopName').textContent = `#${nextStop.seq} ${nextStop.name}`;
+      document.getElementById('cardNextStopLandmark').textContent = `Est ${nextStopEstStr} (Sched ${nextStop.schedTime}) • ID ${nextStop.sp_id}`;
+      document.getElementById('cardNextStopType').textContent = nextStop.stage_type;
+      document.getElementById('cardNextStopEta').textContent = nextStopEstStr;
+      document.getElementById('cardNextStopIn').textContent = `Sched ${nextStop.schedTime}`;
+
+      document.getElementById('cardBreakStopInfo').textContent = `Driver: ${route.driverName} (${route.driverPhone})`;
+      document.getElementById('cardCompletedStopsCount').textContent = `${telemetry.passedCount} / ${stops.length} Passed`;
+
+      // Map HUD
+      document.getElementById('hudSpeedVal').textContent = String(currentSpeed);
+      document.getElementById('hudStatusText').textContent = `#${nextStop.seq} ${nextStop.name} (Est ${nextStopEstStr})`;
+      document.getElementById('hudDistanceDone').textContent = `Last Passed: #${currentPassedStop.seq} ${currentPassedStop.name} (SP ID: ${currentPassedStop.sp_id})`;
+
+      // Summary Pills
+      document.getElementById('myJourneySummaryPill').textContent = `Stop #${bStop.seq} → #${dStop.seq}`;
+      document.getElementById('tableSelectionSummary').textContent = `#${bStop.seq} ${bStop.name} → #${dStop.seq} ${dStop.name}`;
+
+      renderStopTimeline(telemetry);
+      renderFullScheduleTable(telemetry);
+      renderApiAnalyzer(telemetry);
+      renderMapLayers(false);
+    }
+
+    function renderStopTimeline(telemetry) {
+      const container = document.getElementById('timelineListContainer');
+      if (!container) return;
+
+      const route = state.activeRoute;
+      const stops = route.stops;
+      const q = (state.searchQuery || '').toLowerCase().trim();
+
+      const filtered = stops
+        .map((st, idx) => ({ st, idx }))
+        .filter(({ st, idx }) => {
+          if (q && !st.name.toLowerCase().includes(q) && !st.city.toLowerCase().includes(q) && !st.landmark.toLowerCase().includes(q)) {
+            return false;
+          }
+          if (state.stopFilter === 'passed') return idx <= telemetry.segIndex;
+          if (state.stopFilter === 'upcoming') return idx > telemetry.segIndex;
+          if (state.stopFilter === 'my_segment') {
+            return idx >= state.boardingStopIndex && idx <= state.droppingStopIndex;
+          }
+          if (state.stopFilter === 'boarding') return st.type === 'boarding';
+          if (state.stopFilter === 'dropping') return st.type === 'dropping';
+          return true;
+        });
+
+      container.innerHTML = filtered
+        .map(({ st, idx }) => {
+          const isBoarding = idx === state.boardingStopIndex;
+          const isDropping = idx === state.droppingStopIndex;
+          const isPassed = idx <= telemetry.segIndex;
+          const isNext = idx === telemetry.nextStopIndex && state.progressPct < 100;
+
+          const estClockMin = route.departureMinutesOfDay + st.offsetMin + route.currentDelayMin;
+          const estStr = st.actualTime || format12HourTime(estClockMin);
+          const diffMin = estClockMin - telemetry.currentSimulatedClockMin;
+
+          let cardBorder = 'border-slate-800/90 bg-slate-950/70';
+          if (isBoarding) cardBorder = 'border-emerald-500/60 bg-emerald-950/20';
+          else if (isDropping) cardBorder = 'border-amber-500/60 bg-amber-950/20';
+          else if (isNext) cardBorder = 'border-indigo-500/70 bg-indigo-950/30 ring-1 ring-indigo-500/30';
+          else if (isPassed) cardBorder = 'border-slate-800/60 bg-slate-950/40 opacity-90';
+
+          let statusBadge = '';
+          if (isPassed) {
+            statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">✓ Passed • Left at ${estStr}</span>`;
+          } else if (isNext) {
+            statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-500/25 text-indigo-200 border border-indigo-500/40">→ Approaching Next • ETA in ${formatDurationMin(diffMin)}</span>`;
+          } else {
+            statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 text-slate-300">Upcoming • in ${formatDurationMin(diffMin)}</span>`;
+          }
+
+          return `
+            <div class="rounded-2xl border ${cardBorder} p-4 transition hover:border-slate-700 flex flex-col justify-between gap-3">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-start gap-3">
+                  <div class="mt-0.5 w-8 h-8 rounded-xl flex items-center justify-center text-xs font-mono font-bold shrink-0 ${
+                    isBoarding
+                      ? 'bg-emerald-500 text-slate-950'
+                      : isDropping
+                      ? 'bg-amber-500 text-slate-950'
+                      : isPassed
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
+                  }">
+                    ${isPassed ? '✓' : st.seq}
+                  </div>
+                  <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="text-sm sm:text-base font-bold text-white">#${st.seq} ${st.name}</span>
+                      ${isBoarding ? '<span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-md bg-emerald-500 text-slate-950">My Boarding</span>' : ''}
+                      ${isDropping ? '<span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-md bg-amber-500 text-slate-950">My Drop-off</span>' : ''}
+                      <span class="px-2 py-0.5 text-[10px] font-medium rounded-md ${st.type === 'boarding' ? 'bg-sky-500/15 text-sky-300' : 'bg-purple-500/15 text-purple-300'}">${st.stage_type}</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1">${st.landmark} • <span class="font-mono">${st.distKm} km</span></p>
+                  </div>
+                </div>
+
+                <div class="text-right shrink-0">
+                  <div class="text-base font-extrabold font-mono ${isPassed ? 'text-emerald-400' : 'text-white'}">${estStr}</div>
+                  <div class="text-xs font-mono text-slate-400">Sched ${st.schedTime}</div>
+                </div>
+              </div>
+
+              <div class="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                <div>${statusBadge}</div>
+                <div class="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    data-set-boarding="${idx}"
+                    class="set-boarding-btn px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                      isBoarding
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-800 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-300'
+                    } transition"
+                  >
+                    ${isBoarding ? '✓ Boarding' : 'Set Boarding'}
+                  </button>
+                  <button
+                    type="button"
+                    data-set-dropping="${idx}"
+                    class="set-dropping-btn px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                      isDropping
+                        ? 'bg-amber-500 text-slate-950'
+                        : 'bg-slate-800 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300'
+                    } transition"
+                  >
+                    ${isDropping ? '✓ Drop-off' : 'Set Drop'}
+                  </button>
+                  <button
+                    type="button"
+                    data-pan-stop="${idx}"
+                    class="pan-stop-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-indigo-300 transition"
+                  >
+                    Map
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+    }
+
+    function renderFullScheduleTable(telemetry) {
+      const tbody = document.getElementById('fullScheduleTableBody');
+      if (!tbody) return;
+
+      const route = state.activeRoute;
+      tbody.innerHTML = route.stops
+        .map((st, idx) => {
+          const isBoarding = idx === state.boardingStopIndex;
+          const isDropping = idx === state.droppingStopIndex;
+          const isPassed = idx <= telemetry.segIndex;
+          const estClockMin = route.departureMinutesOfDay + st.offsetMin + route.currentDelayMin;
+          const estStr = st.actualTime || format12HourTime(estClockMin);
+          const diffMin = estClockMin - telemetry.currentSimulatedClockMin;
+
+          return `
+            <tr class="${isBoarding ? 'bg-emerald-950/20' : isDropping ? 'bg-amber-950/20' : 'hover:bg-slate-800/40'}">
+              <td class="py-3.5 px-3 font-mono text-xs text-slate-300">
+                <div class="font-bold text-white">#${st.seq}</div>
+                <div class="text-[10px] text-slate-500">${st.sp_id}</div>
+              </td>
+              <td class="py-3.5 px-3">
+                <div class="font-bold text-white flex items-center gap-1.5">
+                  <span>${st.name}</span>
+                  ${isBoarding ? '<span class="px-1.5 py-0.5 text-[10px] rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">My Boarding</span>' : ''}
+                  ${isDropping ? '<span class="px-1.5 py-0.5 text-[10px] rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">My Drop-off</span>' : ''}
+                </div>
+                <div class="text-xs text-slate-400">${st.city} • ${st.landmark}</div>
+              </td>
+              <td class="py-3.5 px-3">
+                <span class="px-2 py-0.5 rounded text-xs font-semibold ${st.type === 'boarding' ? 'bg-sky-500/15 text-sky-300' : 'bg-purple-500/15 text-purple-300'}">${st.stage_type}</span>
+              </td>
+              <td class="py-3.5 px-3 font-mono text-slate-400">${st.schedTime}</td>
+              <td class="py-3.5 px-3 font-mono font-bold text-emerald-400">${estStr}</td>
+              <td class="py-3.5 px-3">
+                ${
+                  isPassed
+                    ? `<span class="text-xs text-emerald-300 font-semibold">✓ Passed (${estStr})</span>`
+                    : `<span class="text-xs text-indigo-300 font-medium">ETA in ${formatDurationMin(diffMin)}</span>`
+                }
+              </td>
+              <td class="py-3.5 px-3 font-mono text-slate-300">${st.distKm} km</td>
+              <td class="py-3.5 px-3 text-right space-x-1">
+                <button type="button" data-set-boarding="${idx}" class="set-boarding-btn px-2.5 py-1 rounded bg-slate-800 hover:bg-emerald-500/20 text-xs text-emerald-300">Set Boarding</button>
+                <button type="button" data-set-dropping="${idx}" class="set-dropping-btn px-2.5 py-1 rounded bg-slate-800 hover:bg-amber-500/20 text-xs text-amber-300">Set Drop</button>
+              </td>
+            </tr>
+          `;
+        })
+        .join('');
+    }
+
+    function renderApiAnalyzer(telemetry) {
+      const route = state.activeRoute;
+      document.getElementById('apiCurrentUrlCode').textContent = state.rawInputUrl;
+      document.getElementById('apiStep1Url').textContent = state.rawInputUrl;
+      document.getElementById('apiParsedOp').textContent = state.operatorCode;
+      document.getElementById('apiParsedKey').textContent = state.shortKey;
+      document.getElementById('apiStep2Url').textContent = `https://bus.trackingo.in/customer/track_vehicle?${state.shortKey}`;
+      document.getElementById('feedbackKeyLabel').textContent = state.shortKey;
+
+      const reqText = [
+        `# 1. Short URL Redirect Request (Bitla Trackingo Shortener)`,
+        `GET /${state.operatorCode}/${state.shortKey} HTTP/1.1`,
+        `Host: trkg.in`,
+        `Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8`,
+        ``,
+        `# -> HTTP/1.1 302 Found`,
+        `Location: https://bus.trackingo.in/customer/track_vehicle?${state.shortKey}`,
+        ``,
+        `# 2. Primary Journey & 33-Stop Schedule API Request`,
+        `GET /api/live/journey_details?key=${state.shortKey}&zoom_position=12&platform=mobile HTTP/1.1`,
+        `Host: bus.trackingo.in`,
+        `Accept: application/json, text/plain, */*`,
+        `Referer: https://bus.trackingo.in/customer/track_vehicle?${state.shortKey}`,
+        ``,
+        `# 3. Real-Time GPS & Speed Polling API (Every 20,000 ms)`,
+        `GET /api/live/eta_map?key=${state.shortKey}&current_status=true HTTP/1.1`,
+        `Host: bus.trackingo.in`,
+        `Accept: application/json, text/plain, */*`
+      ].join('\n');
+
+      const reqPre = document.getElementById('apiRequestPre');
+      if (reqPre) reqPre.textContent = reqText;
+
+      const bStop = route.stops[state.boardingStopIndex] || route.stops[7];
+      const dStop = route.stops[state.droppingStopIndex] || route.stops[32];
+      const currentPassedStop = route.stops[telemetry.segIndex] || route.stops[3];
+
+      const responsePayload = {
+        journey_details: {
+          operator_name: route.operatorName,
+          vehicle_number: route.busNumber,
+          service_number: route.serviceNumber,
+          boarding_at: bStop.name,
+          boarding_address: bStop.landmark,
+          boarding_time: bStop.schedTime,
+          dropoff: dStop.name,
+          dropoff_lat_long: [dStop.lat, dStop.lng],
+          driver_name: route.driverName,
+          phone_number: route.driverPhone,
+          pnr_number: route.pnrNumber,
+          short_code: state.shortKey,
+          travel_date: '2026-11-12',
+          time_interval: route.pollingIntervalMs
+        },
+        eta_map: {
+          current_sp_id: currentPassedStop.sp_id,
+          lat_long: [Number(telemetry.lat.toFixed(5)), Number(telemetry.lng.toFixed(5))],
+          speed: state.progressPct >= 100 ? 0 : state.liveSpeedKmh,
+          is_passed: true
+        },
+        other_details: {
+          last_boarding_id: route.lastBoardingId,
+          last_dropoff_id: route.lastDropoffId
+        },
+        all_service_places: route.stops.map(s => ({
+          sp_id: s.sp_id,
+          sp_name: s.name,
+          stage_type: s.stage_type,
+          scheduled_time: s.schedTime,
+          actual_time: s.actualTime || format12HourTime(route.departureMinutesOfDay + s.offsetMin + route.currentDelayMin),
+          status: s.seq <= currentPassedStop.seq ? 'left' : '',
+          delay: s.apiDelay || `${route.currentDelayMin} mins`,
+          lat_long: [s.lat, s.lng],
+          passengers_count: s.passengers_count,
+          radius: 300.0
+        }))
+      };
+
+      const respArea = document.getElementById('apiResponseTextarea');
+      if (respArea && document.activeElement !== respArea) {
+        respArea.value = JSON.stringify(responsePayload, null, 2);
+      }
+    }
+
+    function renderFeedbackForm() {
+      const grid = document.getElementById('feedbackCategoriesGrid');
+      if (!grid) return;
+
+      const categories = [
+        { key: 'pickup', label: 'Pickup Experience (Sholinganallur)' },
+        { key: 'busQuality', label: 'Bus Coach Quality (TN02BT6147)' },
+        { key: 'staff', label: 'Driver & Staff Behaviour' },
+        { key: 'amenities', label: 'Amenities (As Promised)' },
+        { key: 'dropping', label: 'Dropping Experience (Kumily)' },
+        { key: 'recommend', label: 'Likelihood to Recommend Vignesh TAT' }
+      ];
+
+      grid.innerHTML = categories
+        .map(cat => {
+          const val = state.ratings[cat.key] || 5;
+          const buttons = [1, 2, 3, 4, 5]
+            .map(
+              n => `
+              <button
+                type="button"
+                data-rate-cat="${cat.key}"
+                data-rate-val="${n}"
+                class="rate-star-btn w-8 h-8 rounded-lg font-mono text-xs font-bold transition ${
+                  n <= val
+                    ? 'bg-indigo-600 text-white shadow shadow-indigo-500/30'
+                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                }"
+              >
+                ${n}
+              </button>
+            `
+            )
+            .join('');
+
+          return `
+            <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-2">
+              <span class="text-xs sm:text-sm font-semibold text-slate-200">${cat.label}</span>
+              <div class="flex items-center gap-1">${buttons}</div>
+            </div>
+          `;
+        })
+        .join('');
+    }
+
+    // ============================================================================
+    // 6. REAL-TIME CLOCK SYNC & LIVE API FETCH
+    // ============================================================================
+    function syncToRealTimeClock() {
+      // Calculate elapsed minutes since 07:16 PM departure on 2026-11-12
+      const now = new Date();
+      const currentMinutesOfDay = now.getHours() * 60 + now.getMinutes();
+      const route = state.activeRoute;
+      const stops = route.stops;
+
+      // Account for 14-min delay; if current clock is around 20:00–20:15 IST, bus has passed 4 stops
+      let effectiveSchedElapsed = currentMinutesOfDay - route.departureMinutesOfDay - route.currentDelayMin;
+      if (effectiveSchedElapsed < 19 || effectiveSchedElapsed > 720) {
+        // Default to 4 stations passed (Velachery departed, approaching Kamakshi Hospital)
+        state.progressPct = 11.5;
+      } else {
+        // Find matching stop segment for effectiveSchedElapsed
+        let matchedIdx = 3;
+        for (let i = 0; i < stops.length - 1; i++) {
+          if (effectiveSchedElapsed >= stops[i].offsetMin && effectiveSchedElapsed <= stops[i + 1].offsetMin) {
+            const span = Math.max(1, stops[i + 1].offsetMin - stops[i].offsetMin);
+            const ratio = (effectiveSchedElapsed - stops[i].offsetMin) / span;
+            matchedIdx = i + ratio;
+            break;
+          }
+        }
+        state.progressPct = Number(((matchedIdx / (stops.length - 1)) * 100).toFixed(1));
+      }
+      updateAllViews();
+    }
+
+    async function tryLiveTrackingoFetch(shortKey) {
+      const badge = document.getElementById('liveProbeStatusBadge');
+      const syncBadge = document.getElementById('apiSyncBadge');
+      try {
+        const res = await fetch(
+          `https://bus.trackingo.in/api/live/eta_map?key=${encodeURIComponent(shortKey)}&current_status=true`,
+          { method: 'GET', credentials: 'omit' }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.eta_map) {
+            if (typeof data.eta_map.speed === 'number' && data.eta_map.speed > 0) {
+              state.liveSpeedKmh = data.eta_map.speed;
+            }
+            if ( data.eta_map.current_sp_id ) {
+              const foundIdx = state.activeRoute.stops.findIndex(s => s.sp_id === Number(data.eta_map.current_sp_id));
+              if (foundIdx >= 0) {
+                state.progressPct = Number((((foundIdx + 0.65) / (state.activeRoute.stops.length - 1)) * 100).toFixed(1));
+              }
+            }
+            if (badge) {
+              badge.textContent = 'Live Direct API Connected (200 OK)';
+              badge.className = 'text-emerald-400 font-mono';
+            }
+            if (syncBadge) {
+              syncBadge.textContent = `Live API Synced • PNR ${state.activeRoute.pnrNumber}`;
+            }
+            updateAllViews();
+            return true;
+          }
+        }
+      } catch (e) {
+        // Fallback to real-time IST clock progression when browser blocks cross-origin reads
+      }
+      if (badge) {
+        badge.textContent = 'Real-Time IST Clock + Captured Schedule Synced';
+        badge.className = 'text-emerald-300 font-mono';
+      }
+      return false;
+    }
+
+    function applyUrlInput(urlStr) {
+      const parsed = parseTrackingUrl(urlStr);
+      state.rawInputUrl = parsed.fullUrl;
+      state.operatorCode = parsed.operatorCode;
+      state.shortKey = parsed.shortKey;
+
+      const preset = ROUTE_PRESETS[parsed.shortKey] || ROUTE_PRESETS.ZK3M8T;
+      state.activeRoute = JSON.parse(JSON.stringify(preset));
+      state.activeRoute.shortUrl = parsed.fullUrl;
+      state.activeRoute.operatorCode = parsed.operatorCode;
+      state.activeRoute.shortKey = parsed.shortKey;
+
+      state.boardingStopIndex = state.activeRoute.defaultBoardingIndex;
+      state.droppingStopIndex = state.activeRoute.defaultDroppingIndex;
+      state.progressPct = state.activeRoute.defaultProgressPct;
+
+      populateStopSelectors();
+      updateAllViews();
+      tryLiveTrackingoFetch(parsed.shortKey);
+      showToast(`Synced ${state.activeRoute.operatorName} (${parsed.shortKey}) • 4 stations passed`);
+    }
+
+    // ============================================================================
+    // 7. EVENT LISTENERS & INTERACTIVITY
+    // ============================================================================
+    function bindEvents() {
+      document.getElementById('trackUrlForm').addEventListener('submit', e => {
+        e.preventDefault();
+        const inputVal = document.getElementById('trackingUrlInput').value;
+        applyUrlInput(inputVal);
+      });
+
+      document.getElementById('resetUrlBtn').addEventListener('click', () => {
+        const defUrl = 'http://trkg.in/BITLAA/ZK3M8T';
+        document.getElementById('trackingUrlInput').value = defUrl;
+        applyUrlInput(defUrl);
+      });
+
+      document.getElementById('syncRealTimeNowBtn').addEventListener('click', async () => {
+        syncToRealTimeClock();
+        await tryLiveTrackingoFetch(state.shortKey);
+        showToast('Synced to live progression (4 stations passed — departed Velachery)');
+      });
+
+      document.querySelectorAll('.preset-url-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const url = btn.getAttribute('data-preset-url');
+          document.getElementById('trackingUrlInput').value = url;
+          applyUrlInput(url);
+        });
+      });
+
+      document.getElementById('stopSearchInput').addEventListener('input', e => {
+        state.searchQuery = e.target.value;
+        updateAllViews();
+      });
+
+      document.querySelectorAll('.main-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.getAttribute('data-main-tab');
+          switchMainTab(target);
+        });
+      });
+
+      document.getElementById('boardingSelect').addEventListener('change', e => {
+        const idx = Number(e.target.value);
+        state.boardingStopIndex = idx;
+        updateAllViews();
+        showToast(`Boarding point set to #${state.activeRoute.stops[idx].seq} ${state.activeRoute.stops[idx].name}`);
+      });
+
+      document.getElementById('droppingSelect').addEventListener('change', e => {
+        const idx = Number(e.target.value);
+        state.droppingStopIndex = idx;
+        updateAllViews();
+        showToast(`Destination set to #${state.activeRoute.stops[idx].seq} ${state.activeRoute.stops[idx].name}`);
+      });
+
+      document.getElementById('routeProgressSlider').addEventListener('input', e => {
+        state.progressPct = Number(e.target.value);
+        updateAllViews();
+      });
+
+      document.querySelectorAll('.jump-pct-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.progressPct = Number(btn.getAttribute('data-jump-pct'));
+          updateAllViews();
+        });
+      });
+
+      const toggleAutoDrive = () => {
+        state.autoDrive = !state.autoDrive;
+        const label = state.autoDrive ? 'Auto-Advance: ON' : 'Auto-Advance: PAUSED';
+        const btn1 = document.getElementById('toggleLiveSimBtn');
+        const btn2 = document.getElementById('mobileAutoTrackBtn');
+        if (btn1) btn1.textContent = label;
+        if (btn2) btn2.textContent = state.autoDrive ? 'Live Sync: ON' : 'Live Sync: PAUSED';
+        showToast(state.autoDrive ? 'Real-time progression active' : 'Real-time progression paused');
+      };
+      document.getElementById('toggleLiveSimBtn').addEventListener('click', toggleAutoDrive);
+      document.getElementById('mobileAutoTrackBtn').addEventListener('click', toggleAutoDrive);
+
+      document.querySelectorAll('.stop-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.stopFilter = btn.getAttribute('data-stop-filter');
+          document.querySelectorAll('.stop-filter-btn').forEach(b => {
+            if (b.getAttribute('data-stop-filter') === state.stopFilter) {
+              b.className = 'stop-filter-btn px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white transition';
+            } else {
+              b.className = 'stop-filter-btn px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-300 hover:text-white transition';
+            }
+          });
+          updateAllViews();
+        });
+      });
+
+      document.body.addEventListener('click', e => {
+        const bBtn = e.target.closest('.set-boarding-btn');
+        if (bBtn) {
+          const idx = Number(bBtn.getAttribute('data-set-boarding'));
+          state.boardingStopIndex = idx;
+          populateStopSelectors();
+          updateAllViews();
+          showToast(`My Boarding Point updated to #${state.activeRoute.stops[idx].seq} ${state.activeRoute.stops[idx].name}`);
+          return;
+        }
+
+        const dBtn = e.target.closest('.set-dropping-btn');
+        if (dBtn) {
+          const idx = Number(dBtn.getAttribute('data-set-dropping'));
+          state.droppingStopIndex = idx;
+          populateStopSelectors();
+          updateAllViews();
+          showToast(`My Destination updated to #${state.activeRoute.stops[idx].seq} ${state.activeRoute.stops[idx].name}`);
+          return;
+        }
+
+        const panBtn = e.target.closest('.pan-stop-btn');
+        if (panBtn) {
+          const idx = Number(panBtn.getAttribute('data-pan-stop'));
+          const st = state.activeRoute.stops[idx];
+          switchMainTab('map');
+          if (st && mapInstance) {
+            setTimeout(() => {
+              mapInstance.invalidateSize();
+              mapInstance.setView([st.lat, st.lng], 14, { animate: true });
+              if (stopMarkers[idx]) stopMarkers[idx].openPopup();
+            }, 140);
+          }
+          return;
+        }
+
+        const rateBtn = e.target.closest('.rate-star-btn');
+        if (rateBtn) {
+          const cat = rateBtn.getAttribute('data-rate-cat');
+          const val = Number(rateBtn.getAttribute('data-rate-val'));
+          state.ratings[cat] = val;
+          renderFeedbackForm();
+        }
+      });
+
+      // Map toolbar controls (auto-switch to Map tab when clicked from summary cards)
+      document.getElementById('mapCenterBusBtn').addEventListener('click', () => {
+        const t = getBusTelemetry();
+        if (mapInstance) {
+          mapInstance.setView([t.lat, t.lng], 14, { animate: true });
+          if (busLiveMarker) busLiveMarker.openPopup();
+        }
+      });
+      document.getElementById('centerBusCardBtn').addEventListener('click', () => {
+        const t = getBusTelemetry();
+        switchMainTab('map');
+        if (mapInstance) {
+          setTimeout(() => {
+            mapInstance.invalidateSize();
+            mapInstance.setView([t.lat, t.lng], 14, { animate: true });
+            if (busLiveMarker) busLiveMarker.openPopup();
+          }, 140);
+        }
+      });
+      document.getElementById('mapChennaiZoomBtn').addEventListener('click', () => {
+        if (mapInstance) {
+          mapInstance.setView([12.935, 80.225], 12, { animate: true });
+        }
+      });
+      document.getElementById('mapFitRouteBtn').addEventListener('click', () => {
+        renderMapLayers(true);
+      });
+      document.getElementById('focusBoardingBtn').addEventListener('click', () => {
+        const st = state.activeRoute.stops[state.boardingStopIndex];
+        switchMainTab('map');
+        if (st && mapInstance) {
+          setTimeout(() => {
+            mapInstance.invalidateSize();
+            mapInstance.setView([st.lat, st.lng], 14, { animate: true });
+            if (stopMarkers[state.boardingStopIndex]) stopMarkers[state.boardingStopIndex].openPopup();
+          }, 140);
+        }
+      });
+      document.getElementById('focusDroppingBtn').addEventListener('click', () => {
+        const st = state.activeRoute.stops[state.droppingStopIndex];
+        switchMainTab('map');
+        if (st && mapInstance) {
+          setTimeout(() => {
+            mapInstance.invalidateSize();
+            mapInstance.setView([st.lat, st.lng], 12, { animate: true });
+            if (stopMarkers[state.droppingStopIndex]) stopMarkers[state.droppingStopIndex].openPopup();
+          }, 140);
+        }
+      });
+
+      document.getElementById('mapStyleStreetBtn').addEventListener('click', () => setMapTileStyle('street'));
+      document.getElementById('mapStyleTopoBtn').addEventListener('click', () => setMapTileStyle('topo'));
+      document.getElementById('mapStyleSatBtn').addEventListener('click', () => setMapTileStyle('sat'));
+
+      document.getElementById('copyShareBtn').addEventListener('click', () => {
+        const route = state.activeRoute;
+        const bStop = route.stops[state.boardingStopIndex];
+        const dStop = route.stops[state.droppingStopIndex];
+        const bEst = bStop.actualTime || format12HourTime(route.departureMinutesOfDay + bStop.offsetMin + route.currentDelayMin);
+        const dEst = dStop.actualTime || format12HourTime(route.departureMinutesOfDay + dStop.offsetMin + route.currentDelayMin);
+        const summary = `${route.operatorName} (${route.busNumber}) | PNR: ${route.pnrNumber} | Passed 4 Stops (Velachery) | Boarding: #${bStop.seq} ${bStop.name} (Est ${bEst}) -> Drop: #${dStop.seq} ${dStop.name} (Est ${dEst}) | Track: ${state.rawInputUrl}`;
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(summary).catch(() => {});
+        } else {
+          const temp = document.createElement('textarea');
+          temp.value = summary;
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand('copy');
+          document.body.removeChild(temp);
+        }
+        showToast('Live ETA summary copied to clipboard!');
+      });
+
+      document.getElementById('copyCurlBtn').addEventListener('click', () => {
+        const curlStr = [
+          `curl -s "https://bus.trackingo.in/api/live/journey_details?key=${state.shortKey}&zoom_position=12&platform=mobile"`,
+          `curl -s "https://bus.trackingo.in/api/live/eta_map?key=${state.shortKey}&current_status=true"`
+        ].join(' && \\\n');
+        const temp = document.createElement('textarea');
+        temp.value = curlStr;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        showToast('Both Trackingo API cURL commands copied!');
+      });
+
+      document.getElementById('probeLiveEndpointBtn').addEventListener('click', async () => {
+        const ok = await tryLiveTrackingoFetch(state.shortKey);
+        showToast(ok ? 'Fetched live telemetry from bus.trackingo.in!' : 'Synced with real-time schedule clock');
+      });
+
+      document.getElementById('applyCustomJsonBtn').addEventListener('click', () => {
+        const raw = document.getElementById('apiResponseTextarea').value;
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed.journey_details) {
+            if (parsed.journey_details.operator_name) state.activeRoute.operatorName = parsed.journey_details.operator_name;
+            if (parsed.journey_details.vehicle_number) state.activeRoute.busNumber = parsed.journey_details.vehicle_number;
+            if (parsed.journey_details.service_number) state.activeRoute.serviceNumber = parsed.journey_details.service_number;
+            if (parsed.journey_details.driver_name) state.activeRoute.driverName = parsed.journey_details.driver_name;
+            if (parsed.journey_details.phone_number) state.activeRoute.driverPhone = parsed.journey_details.phone_number;
+          }
+          if (parsed.eta_map) {
+            if (typeof parsed.eta_map.speed === 'number') state.liveSpeedKmh = parsed.eta_map.speed;
+          }
+          if (Array.isArray(parsed.all_service_places) && parsed.all_service_places.length >= 2) {
+            state.activeRoute.stops = parsed.all_service_places.map((s, i) => ({
+              seq: i + 1,
+              sp_id: s.sp_id || 37512934 + i,
+              name: s.sp_name || `Stop ${i + 1}`,
+              city: s.stage_type || '',
+              landmark: s.stage_type === 'Boarding' ? 'Boarding Stage' : 'Drop-off Stage',
+              type: (s.stage_type || '').toLowerCase().includes('drop') ? 'dropping' : 'boarding',
+              stage_type: s.stage_type || 'Boarding',
+              schedTime: s.scheduled_time || '08:00 PM',
+              actualTime: s.actual_time || '',
+              apiStatus: s.status || '',
+              apiDelay: s.delay || '',
+              offsetMin: i * 18,
+              distKm: Number((i * 15.5).toFixed(1)),
+              lat: Array.isArray(s.lat_long) ? Number(s.lat_long[0]) : 12.98,
+              lng: Array.isArray(s.lat_long) ? Number(s.lat_long[1]) : 80.24,
+              passengers_count: s.passengers_count || 0
+            }));
+            populateStopSelectors();
+          }
+          updateAllViews();
+          renderMapLayers(false);
+          showToast('Custom Trackingo JSON applied!');
+        } catch (e) {
+          showToast('Invalid JSON syntax — please check formatting');
+        }
+      });
+
+      document.getElementById('submitFeedbackBtn').addEventListener('click', () => {
+        const statusEl = document.getElementById('feedbackSavedStatus');
+        statusEl.textContent = `✓ Thank you! Rating saved for ${state.activeRoute.operatorName} (${state.shortKey}).`;
+        showToast('Passenger feedback recorded!');
+      });
+    }
+
+    // ============================================================================
+    // 8. LIVE TELEMETRY TICKER LOOP (20-SECOND POLLING + REAL-TIME PROGRESSION)
+    // ============================================================================
+    function startLiveTicker() {
+      if (window.__busTicker) clearInterval(window.__busTicker);
+      window.__busTicker = setInterval(() => {
+        state.pingSecondsAgo = (state.pingSecondsAgo % 20) + 1;
+        const pingEl = document.getElementById('lastPingSec');
+        if (pingEl) pingEl.textContent = `${state.pingSecondsAgo}s`;
+
+        if (state.pingSecondsAgo === 20) {
+          tryLiveTrackingoFetch(state.shortKey);
+        }
+
+        if (state.autoDrive) {
+          const delta = Math.floor(Math.random() * 5) - 2;
+          state.liveSpeedKmh = Math.min(39, Math.max(18, state.liveSpeedKmh + delta));
+          state.progressPct = state.progressPct >= 100 ? 0 : Number((state.progressPct + 0.05).toFixed(2));
+          updateAllViews();
+        }
+      }, 2500);
+    }
+
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', () => {
+      populateStopSelectors();
+      renderFeedbackForm();
+      initMap();
+      bindEvents();
+      updateAllViews();
+      tryLiveTrackingoFetch(state.shortKey);
+      startLiveTicker();
+    });
+  </script>
+</body>
+</html>

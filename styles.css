@@ -1,0 +1,66 @@
+body {
+      font-family: 'Inter', sans-serif;
+      background-color: #090d16;
+      color: #f1f5f9;
+      overflow-x: hidden;
+    }
+    /* Isolate Leaflet stacking context completely so map controls/panes never overlap page elements on scroll */
+    .map-isolation-wrapper {
+      position: relative;
+      isolation: isolate;
+      z-index: 1;
+    }
+    #mapContainer {
+      height: 520px;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+    .leaflet-container {
+      font-family: 'Inter', sans-serif;
+      background: #0f172a;
+      z-index: 1 !important;
+    }
+    .leaflet-pane,
+    .leaflet-top,
+    .leaflet-bottom,
+    .leaflet-control {
+      z-index: 10 !important;
+    }
+    .leaflet-popup-content-wrapper {
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.7);
+    }
+    .leaflet-popup-tip {
+      background: #1e293b;
+    }
+    .bus-pulse {
+      animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes pulseRing {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 0.9;
+      }
+      50% {
+        transform: scale(1.42);
+        opacity: 0.25;
+      }
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
